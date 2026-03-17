@@ -4,27 +4,39 @@ import { authAPI } from '../services/api'
 const AuthContext = createContext(null)
 
 /**
- * Backend /me returns:
- *   { success, data: { fullName, email, mobileNumber, roles: [{ roleName }] } }
+ * Backend response shapes:
  *
- * Backend /login returns:
- *   { success, token, refreshToken, expiresAt, user: { id, email, roles: ["Admin"] } }
+ * POST /api/v1/auth/login  →
+ *   { Success, Token, RefreshToken, ExpiresAt,
+ *     User: { Id, Email, Roles: ["Admin"] } }        ← Roles is List<string>
  *
- * We extract the first role string from either shape.
+ * GET  /api/v1/auth/me  →
+ *   { Success, Data: { FullName, Email, MobileNumber,
+ *     Roles: [{ RoleID, RoleName }] } }              ← Roles is List<Role>
  */
-function extractRole(userData) {
-  if (!userData) return ''
 
-  // Shape A: roles is [{ roleName: "Admin" }]  (from /me AuthEmployee)
-  if (Array.isArray(userData.roles) && userData.roles.length > 0) {
-    const first = userData.roles[0]
-    if (typeof first === 'string') return first          // Shape B: ["Admin"]
-    if (first?.roleName)          return first.roleName  // Shape A
-    if (first?.name)              return first.name      // Safety fallback
+function extractRoleFromLogin(user) {
+  // user.Roles is string[] e.g. ["Admin"]
+  if (!user) return ''
+  const roles = user.Roles || user.roles || []
+  if (Array.isArray(roles) && roles.length > 0) {
+    const first = roles[0]
+    if (typeof first === 'string') return first
+    return first?.RoleName || first?.roleName || ''
   }
+  return ''
+}
 
-  // Shape C: flat string fields
-  return userData.roleName || userData.role || ''
+function extractRoleFromMe(profile) {
+  // profile.Roles is [{ RoleID, RoleName }]
+  if (!profile) return ''
+  const roles = profile.Roles || profile.roles || []
+  if (Array.isArray(roles) && roles.length > 0) {
+    const first = roles[0]
+    if (typeof first === 'string') return first
+    return first?.RoleName || first?.roleName || ''
+  }
+  return ''
 }
 
 export function AuthProvider({ children }) {
@@ -37,9 +49,10 @@ export function AuthProvider({ children }) {
     if (!token) { setLoading(false); return }
     try {
       const { data } = await authAPI.me()
-      const profile = data?.data ?? data   // handle { data: {...} } or flat
+      // /me wraps in { Success, Data: {...} }
+      const profile = data?.Data ?? data?.data ?? data
       setUser(profile)
-      setRole(extractRole(profile))
+      setRole(extractRoleFromMe(profile))
     } catch {
       localStorage.removeItem('accessToken')
       setUser(null)
@@ -54,19 +67,19 @@ export function AuthProvider({ children }) {
   const login = async (credentials) => {
     const { data } = await authAPI.login(credentials)
 
-    if (!data.success) {
-      throw new Error(data.message || 'Login failed')
+    // Login response: { Success, Token, User: { Id, Email, Roles: ["Admin"] } }
+    if (!data.Success && !data.success) {
+      throw new Error(data.Message || data.message || 'Login failed')
     }
 
-    // Backend returns { token } not { accessToken }
-    const token = data.token || data.accessToken
+    const token = data.Token || data.token || data.accessToken
     if (token) localStorage.setItem('accessToken', token)
 
-    // Optimistically set role from login response so redirect is instant
-    const loginRole = extractRole(data.user)
+    // Get role from login response immediately so redirect is instant
+    const loginRole = extractRoleFromLogin(data.User || data.user)
     if (loginRole) setRole(loginRole)
 
-    // Then fetch full profile
+    // Then fetch full profile for name/email etc
     await fetchMe()
     return { ...data, roleName: loginRole }
   }

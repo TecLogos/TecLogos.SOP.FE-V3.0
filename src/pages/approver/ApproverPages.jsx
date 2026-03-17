@@ -1,31 +1,49 @@
 import { useEffect, useState } from 'react'
 import { sopAPI } from '../../services/api'
-import SopDetailModal from '../../components/common/SopDetailModal'
-import Modal from '../../components/common/Modal'
-import { Spinner, PageLoader, EmptyState } from '../../components/common/Loaders'
-import StatusBadge from '../../components/common/StatusBadge'
-import { formatDate } from '../../utils/sopUtils'
-import { CheckCircle, XCircle, Eye } from 'lucide-react'
+import SopDetailModal from '../../shared/components/SopDetailModal'
+import Modal from '../../shared/components/Modal'
+import { Spinner, PageLoader, EmptyState } from '../../shared/components/Loaders'
+import StatusBadge from '../../shared/components/StatusBadge'
+import { CheckCircle, XCircle, Eye, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { formatDate, normalizeSopItem, safeItems } from '../../utils/sopUtils'
 
-// Approval action: 1 = Approved, 2 = Rejected
+// GET api/v1/sopdetail/pending-list
+// Response: { success, data: { TotalCount, Items: [SopDetailResponse] } }
+function usePending() {
+  const [sops, setSops]       = useState([])
+  const [loading, setLoading] = useState(true)
+
+  const load = () => {
+    setLoading(true)
+    sopAPI.getApproverPending()
+      .then(r => {
+        setSops(safeItems(r.data).map(normalizeSopItem))
+      })
+      .catch(() => toast.error('Failed to load pending SOPs'))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+  return { sops, loading, reload: load }
+}
+
+// ── Approval Modal ────────────────────────────────────────────────────────
+// Approve: PUT api/v1/sopdetail/approve/{sopId}  { Comments }
+// Reject:  PUT api/v1/sopdetail/reject/{sopId}   { Comments }
 function ApprovalModal({ sop, action, open, onClose, onDone }) {
   const [remarks, setRemarks] = useState('')
   const [saving, setSaving]   = useState(false)
-  const isApprove = action === 1
+  const isApprove             = action === 1
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setSaving(true)
     try {
-      await sopAPI.processApproval({
-        sopID: sop.id,
-        action,
-        comments: remarks,
-      })
-      toast.success(isApprove ? 'SOP approved successfully' : 'SOP rejected — returned to initiator')
+      await sopAPI.processApproval({ sopID: sop.id, action, comments: remarks })
+      toast.success(isApprove ? 'SOP approved successfully' : 'SOP rejected')
       onDone(); onClose()
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Action failed')
+      toast.error(err.response?.data?.message || err.response?.data?.Message || 'Action failed')
     } finally { setSaving(false) }
   }
 
@@ -33,15 +51,18 @@ function ApprovalModal({ sop, action, open, onClose, onDone }) {
     <Modal open={open} onClose={onClose}
       title={isApprove ? 'Approve SOP' : 'Reject SOP'} size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-surface-50 rounded-xl p-3">
-          <p className="text-xs text-surface-500 font-medium">SOP</p>
-          <p className="text-sm font-semibold text-surface-800 mt-0.5">{sop?.sopTitle}</p>
+        <div className="bg-white border border-gray-200 rounded-xl p-3">
+          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">SOP</p>
+          <p className="text-sm font-semibold text-gray-800 mt-0.5">{sop?.sopTitle}</p>
           <div className="flex gap-2 mt-1.5">
             <StatusBadge status={sop?.status} />
-            <span className="badge bg-violet-50 text-violet-700">Level {sop?.currentApprovalLevel}</span>
+            {sop?.approvalLevel > 0 && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-violet-100 text-violet-700">
+                Level {sop.approvalLevel}
+              </span>
+            )}
           </div>
         </div>
-
         {!isApprove && (
           <div className="flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl p-3">
             <XCircle size={16} className="text-red-500 mt-0.5 shrink-0" />
@@ -50,15 +71,12 @@ function ApprovalModal({ sop, action, open, onClose, onDone }) {
             </p>
           </div>
         )}
-
         <div>
-          <label className="label">Remarks {!isApprove && '*'}</label>
-          <textarea rows={3} className="input resize-none"
-            value={remarks} onChange={e => setRemarks(e.target.value)}
-            required={!isApprove}
+          <label className="label">Comments {!isApprove && '*'}</label>
+          <textarea rows={3} className="input resize-none" value={remarks}
+            onChange={e => setRemarks(e.target.value)} required={!isApprove}
             placeholder={isApprove ? 'Optional approval notes…' : 'Reason for rejection (required)…'} />
         </div>
-
         <div className="flex gap-3">
           <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
           <button type="submit" disabled={saving}
@@ -72,52 +90,45 @@ function ApprovalModal({ sop, action, open, onClose, onDone }) {
   )
 }
 
+// ── Dashboard ────────────────────────────────────────────────────────────
 export function ApproverDashboard() {
-  const [sops, setSops]       = useState([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    sopAPI.getApproverPending()
-      .then(r => setSops(r.data.data || []))
-      .catch(() => toast.error('Failed to load pending SOPs'))
-      .finally(() => setLoading(false))
-  }, [])
-
+  const { sops, loading } = usePending()
   if (loading) return <PageLoader />
 
-  const byLevel = (l) => sops.filter(s => s.currentApprovalLevel === l).length
+  // ApprovalLevel 3=L1, 4=L2, 5=L3
+  const byLevel = (l) => sops.filter(s => s.approvalLevel === l).length
 
   return (
-    <div className="space-y-8">
+    <div className="min-h-screen p-6 surface space-y-6">
       <div>
         <h1 className="page-title">Approver Dashboard</h1>
-        <p className="text-surface-500 text-sm mt-1">SOPs assigned for your approval</p>
+        <p className="text-gray-500 text-sm mt-1">SOPs assigned for your approval</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {[1, 2, 3].map(level => (
-          <div key={level} className="card p-5 flex items-center gap-4">
-            <div className="w-10 h-10 bg-violet-600 rounded-xl flex items-center justify-center">
-              <span className="text-white text-sm font-bold">{level}</span>
+        {[3, 4, 5].map((level, i) => (
+          <div key={level} className="card-surface border border-gray-200 rounded-2xl shadow-sm p-5 flex items-center gap-4">
+            <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center">
+              <span className="text-violet-700 text-sm font-bold">{i + 1}</span>
             </div>
             <div>
-              <p className="text-2xl font-bold text-surface-900">{byLevel(level)}</p>
-              <p className="text-xs text-surface-500">Level {level} Pending</p>
+              <p className="text-2xl font-bold text-gray-900">{byLevel(level)}</p>
+              <p className="text-xs text-gray-500">Level {i + 1} Pending</p>
             </div>
           </div>
         ))}
       </div>
-      <div className="card">
-        <div className="px-5 py-4 border-b border-surface-100">
+      <div className="card-surface border border-gray-200 rounded-2xl shadow-sm">
+        <div className="px-6 py-4 border-b border-gray-200">
           <h2 className="section-title">Pending Approvals</h2>
         </div>
-        <div className="divide-y divide-surface-100">
+        <div className="divide-y divide-gray-100">
           {!sops.length ? (
-            <div className="py-12 text-center text-surface-400 text-sm">No pending approvals</div>
+            <p className="py-12 text-center text-gray-400 text-sm">No pending approvals</p>
           ) : sops.map(sop => (
-            <div key={sop.id} className="flex items-center gap-3 px-5 py-3.5">
+            <div key={sop.id} className="flex items-center gap-3 px-6 py-3.5 hover:bg-white transition-colors">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-surface-800 truncate">{sop.sopTitle}</p>
-                <p className="text-xs text-surface-400 mt-0.5">Expires {formatDate(sop.expirationDate)}</p>
+                <p className="text-sm font-medium text-gray-800 truncate">{sop.sopTitle}</p>
+                <p className="text-xs text-gray-400 mt-0.5">Expires {formatDate(sop.expirationDate)}</p>
               </div>
               <StatusBadge status={sop.status} />
             </div>
@@ -128,69 +139,64 @@ export function ApproverDashboard() {
   )
 }
 
+// ── Pending Page ─────────────────────────────────────────────────────────
 export function ApproverPendingPage() {
-  const [sops, setSops]       = useState([])
-  const [loading, setLoading] = useState(true)
-  const [viewId, setViewId]   = useState(null)
-  const [modal, setModal]     = useState(null) // { sop, action }
+  const { sops, loading, reload } = usePending()
+  const [viewSop, setViewSop]     = useState(null)
+  const [modal, setModal]         = useState(null)
 
-  const load = () => {
-    setLoading(true)
-    sopAPI.getApproverPending()
-      .then(r => setSops(r.data.data || []))
-      .catch(() => toast.error('Failed to load pending SOPs'))
-      .finally(() => setLoading(false))
-  }
-  useEffect(() => { load() }, [])
-
-  const levelLabel = (status) => {
-    if (status === 3) return 'Level 1'
-    if (status === 4) return 'Level 2'
-    if (status === 5) return 'Level 3'
-    return '—'
-  }
+  const levelLabel = (l) =>
+    l === 3 ? 'Level 1' : l === 4 ? 'Level 2' : l === 5 ? 'Level 3' : `L${l}`
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="page-title">Pending Approvals</h1>
-        <p className="text-sm text-surface-500 mt-1">{sops.length} SOPs awaiting your approval</p>
+    <div className="min-h-screen p-6 surface space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="page-title">Pending Approvals</h1>
+          <p className="text-gray-500 text-sm mt-1">{sops.length} SOPs awaiting your approval</p>
+        </div>
+        <button onClick={reload} className="p-2 rounded-md border-2 border-gray-200 bg-gray-100 text-gray-600 hover:bg-gray-200" title="Refresh">
+          <RefreshCw size={16} />
+        </button>
       </div>
-
-      <div className="card overflow-hidden">
+      <div className="card-surface border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
         {loading ? (
           <div className="p-4 space-y-3">
-            {[...Array(4)].map((_, i) => <div key={i} className="h-14 bg-surface-100 rounded-xl animate-pulse" />)}
+            {[...Array(4)].map((_, i) => <div key={i} className="h-12 bg-gray-200 rounded-xl animate-pulse" />)}
           </div>
         ) : !sops.length ? (
           <EmptyState title="No pending approvals" desc="You're all caught up!" />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px]">
-              <thead>
+            <table className="w-full table-auto border-collapse text-sm min-w-[600px]">
+              <thead className="bg-gray-50">
                 <tr>
-                  <th className="table-th">SOP Title</th>
+                  <th className="table-th">#</th>
+                  <th className="table-th-left">SOP Title</th>
                   <th className="table-th">Approval Level</th>
                   <th className="table-th">Version</th>
                   <th className="table-th">Expiry</th>
-                  <th className="table-th w-44">Actions</th>
+                  <th className="table-th">Actions</th>
                 </tr>
               </thead>
-              <tbody>
-                {sops.map(sop => (
-                  <tr key={sop.id} className="hover:bg-surface-50 transition-colors">
-                    <td className="table-td font-medium text-surface-900">{sop.sopTitle}</td>
+              <tbody className="bg-gray-50 divide-y divide-gray-200">
+                {sops.map((sop, idx) => (
+                  <tr key={sop.id} className="hover:bg-white transition-colors">
+                    <td className="table-td text-gray-400">{idx + 1}</td>
+                    <td className="table-td-left font-medium text-gray-900">{sop.sopTitle}</td>
                     <td className="table-td">
-                      <span className="badge bg-violet-50 text-violet-700">{levelLabel(sop.status)}</span>
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-violet-100 text-violet-700">
+                        {levelLabel(sop.approvalLevel)}
+                      </span>
                     </td>
                     <td className="table-td">
-                      <span className="font-mono text-xs bg-surface-100 px-2 py-0.5 rounded">v{sop.documentVersion}</span>
+                      <span className="font-mono text-xs bg-gray-100 border border-gray-200 px-2 py-0.5 rounded">v{sop.documentVersion ?? 1}</span>
                     </td>
-                    <td className="table-td text-surface-500">{formatDate(sop.expirationDate)}</td>
+                    <td className="table-td text-gray-500">{formatDate(sop.expirationDate)}</td>
                     <td className="table-td">
-                      <div className="flex gap-1.5">
-                        <button onClick={() => setViewId(sop.id)}
-                          className="p-1.5 rounded-lg text-surface-400 hover:text-brand-600 hover:bg-brand-50 transition-colors">
+                      <div className="flex justify-center gap-1.5">
+                        <button onClick={() => setViewSop({ id: sop.id, sopTitle: sop.sopTitle })}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="View">
                           <Eye size={14} />
                         </button>
                         <button onClick={() => setModal({ sop, action: 1 })}
@@ -210,11 +216,15 @@ export function ApproverPendingPage() {
           </div>
         )}
       </div>
-
-      <SopDetailModal sopId={viewId} open={!!viewId} onClose={() => setViewId(null)} />
+      <SopDetailModal
+        sopId={viewSop?.id}
+        sopTitle={viewSop?.sopTitle}
+        open={!!viewSop?.id}
+        onClose={() => setViewSop(null)}
+      />
       {modal && (
         <ApprovalModal sop={modal.sop} action={modal.action} open={!!modal}
-          onClose={() => setModal(null)} onDone={load} />
+          onClose={() => setModal(null)} onDone={reload} />
       )}
     </div>
   )

@@ -1,23 +1,17 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
-import AppLayout from './components/layout/AppLayout'
+import MainLayout from './shared/layouts/MainLayout'
 import LoginPage from './pages/LoginPage'
+import SetPasswordPage from './pages/SetPasswordPage'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminSopsPage from './pages/admin/AdminSopsPage'
 import AdminEmployeesPage from './pages/admin/AdminEmployeesPage'
 import { AdminWorkflowPage, AdminRolesPage } from './pages/admin/AdminWorkflowPage'
 import AdminGroupsPage from './pages/admin/AdminGroupsPage'
-import {
-  InitiatorDashboard, InitiatorSopsPage
-} from './pages/initiator/InitiatorPages'
-import {
-  SupervisorDashboard, SupervisorPendingPage
-} from './pages/supervisor/SupervisorPages'
-import {
-  ApproverDashboard, ApproverPendingPage
-} from './pages/approver/ApproverPages'
-import { PageLoader } from './components/common/Loaders'
-import SetPasswordPage from './pages/SetPasswordPage'
+import { InitiatorDashboard, InitiatorSopsPage } from './pages/initiator/InitiatorPages'
+import { SupervisorDashboard, SupervisorPendingPage } from './pages/supervisor/SupervisorPages'
+import { ApproverDashboard, ApproverPendingPage } from './pages/approver/ApproverPages'
+import { PageLoader } from './shared/components/Loaders'
 
 const ROLE_HOME = {
   Admin:      '/admin/dashboard',
@@ -30,19 +24,12 @@ function Protected({ allowedRoles, children }) {
   const { user, loading, role } = useAuth()
   const location = useLocation()
 
-  // Still resolving token / profile — show loader
   if (loading) return <PageLoader />
-
-  // Not authenticated — go to login
-  if (!user) return <Navigate to="/login" state={{ from: location }} replace />
-
-  // Authenticated but wrong role — send to own home
-  // Note: if role is empty string (edge case), fall through to login
+  if (!user)   return <Navigate to="/login" state={{ from: location }} replace />
   if (allowedRoles && !allowedRoles.includes(role)) {
     const home = ROLE_HOME[role] || '/login'
     return <Navigate to={home} replace />
   }
-
   return children
 }
 
@@ -50,8 +37,7 @@ function RoleRedirect() {
   const { user, loading, role } = useAuth()
   if (loading) return <PageLoader />
   if (!user)   return <Navigate to="/login" replace />
-  const home = ROLE_HOME[role] || '/login'
-  return <Navigate to={home} replace />
+  return <Navigate to={ROLE_HOME[role] || '/login'} replace />
 }
 
 export default function App() {
@@ -59,12 +45,13 @@ export default function App() {
     <AuthProvider>
       <Routes>
         {/* Public */}
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/"      element={<RoleRedirect />} />
+        <Route path="/login"        element={<LoginPage />} />
+        <Route path="/set-password" element={<SetPasswordPage />} />
+        <Route path="/"             element={<RoleRedirect />} />
 
         {/* Admin */}
         <Route path="/admin" element={
-          <Protected allowedRoles={['Admin']}><AppLayout /></Protected>
+          <Protected allowedRoles={['Admin']}><MainLayout /></Protected>
         }>
           <Route path="dashboard" element={<AdminDashboard />} />
           <Route path="sops"      element={<AdminSopsPage />} />
@@ -77,7 +64,7 @@ export default function App() {
 
         {/* Initiator */}
         <Route path="/initiator" element={
-          <Protected allowedRoles={['Initiator']}><AppLayout /></Protected>
+          <Protected allowedRoles={['Initiator']}><MainLayout /></Protected>
         }>
           <Route path="dashboard" element={<InitiatorDashboard />} />
           <Route path="sops"      element={<InitiatorSopsPage />} />
@@ -86,7 +73,7 @@ export default function App() {
 
         {/* Supervisor */}
         <Route path="/supervisor" element={
-          <Protected allowedRoles={['Supervisor']}><AppLayout /></Protected>
+          <Protected allowedRoles={['Supervisor']}><MainLayout /></Protected>
         }>
           <Route path="dashboard" element={<SupervisorDashboard />} />
           <Route path="pending"   element={<SupervisorPendingPage />} />
@@ -95,16 +82,12 @@ export default function App() {
 
         {/* Approver */}
         <Route path="/approver" element={
-          <Protected allowedRoles={['Approver']}><AppLayout /></Protected>
+          <Protected allowedRoles={['Approver']}><MainLayout /></Protected>
         }>
           <Route path="dashboard" element={<ApproverDashboard />} />
           <Route path="pending"   element={<ApproverPendingPage />} />
           <Route index element={<Navigate to="/approver/dashboard" replace />} />
         </Route>
-
-        {/* Onboarding — public, no auth */}
-        <Route path="/set-password" element={<SetPasswordPage />} />
-
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
