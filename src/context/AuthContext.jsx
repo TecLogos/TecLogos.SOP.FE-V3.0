@@ -3,20 +3,21 @@ import { authAPI } from '../services/api'
 
 const AuthContext = createContext(null)
 
-/**
- * Backend response shapes:
- *
- * POST /api/v1/auth/login  →
- *   { Success, Token, RefreshToken, ExpiresAt,
- *     User: { Id, Email, Roles: ["Admin"] } }        ← Roles is List<string>
- *
- * GET  /api/v1/auth/me  →
- *   { Success, Data: { FullName, Email, MobileNumber,
- *     Roles: [{ RoleID, RoleName }] } }              ← Roles is List<Role>
- */
+function extractRoleFromJwt(token) {
+  if (!token) return ''
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]))
+    const roleKey = 'http://schemas.microsoft.com/ws/2008/06/identity/claims/role'
+    const role = payload[roleKey] || payload['role'] || payload['Role'] || ''
+    if (Array.isArray(role)) return role[0] || ''
+    return role || ''
+  } catch {
+    return ''
+  }
+}
 
+// ── Extract role from login response User object ──────────────────────────
 function extractRoleFromLogin(user) {
-  // user.Roles is string[] e.g. ["Admin"]
   if (!user) return ''
   const roles = user.Roles || user.roles || []
   if (Array.isArray(roles) && roles.length > 0) {
@@ -27,9 +28,16 @@ function extractRoleFromLogin(user) {
   return ''
 }
 
+// ── Extract role from /me profile ────────────────────────────────────────
 function extractRoleFromMe(profile) {
-  // profile.Roles is [{ RoleID, RoleName }]
   if (!profile) return ''
+  const direct =
+    profile.ResolvedRole ??
+    profile.resolvedRole ??
+    profile.RoleName ??
+    profile.roleName ??
+    ''
+  if (typeof direct === 'string' && direct) return direct
   const roles = profile.Roles || profile.roles || []
   if (Array.isArray(roles) && roles.length > 0) {
     const first = roles[0]
@@ -49,10 +57,19 @@ export function AuthProvider({ children }) {
     if (!token) { setLoading(false); return }
     try {
       const { data } = await authAPI.me()
-      // /me wraps in { Success, Data: {...} }
       const profile = data?.Data ?? data?.data ?? data
       setUser(profile)
-      setRole(extractRoleFromMe(profile))
+
+      // Try role from /me profile first
+      let resolvedRole = extractRoleFromMe(profile)
+
+      // If /me returns no role (unpatched backend), fall back to JWT decode
+      if (!resolvedRole) {
+        resolvedRole = extractRoleFromJwt(token)
+      }
+
+      // Never default to Admin; safest fallback is Initiator.
+      setRole(resolvedRole || 'Initiator')
     } catch {
       localStorage.removeItem('accessToken')
       setUser(null)
@@ -67,7 +84,6 @@ export function AuthProvider({ children }) {
   const login = async (credentials) => {
     const { data } = await authAPI.login(credentials)
 
-    // Login response: { Success, Token, User: { Id, Email, Roles: ["Admin"] } }
     if (!data.Success && !data.success) {
       throw new Error(data.Message || data.message || 'Login failed')
     }
@@ -75,12 +91,18 @@ export function AuthProvider({ children }) {
     const token = data.Token || data.token || data.accessToken
     if (token) localStorage.setItem('accessToken', token)
 
-    // Get role from login response immediately so redirect is instant
-    const loginRole = extractRoleFromLogin(data.User || data.user)
-    if (loginRole) setRole(loginRole)
+    let loginRole = extractRoleFromLogin(data.User || data.user)
 
-    // Then fetch full profile for name/email etc
+    if (!loginRole && token) {
+      loginRole = extractRoleFromJwt(token)
+    }
+
+    // Never default to Admin; safest fallback is Initiator.
+    loginRole = loginRole || 'Initiator'
+    setRole(loginRole)
+
     await fetchMe()
+
     return { ...data, roleName: loginRole }
   }
 

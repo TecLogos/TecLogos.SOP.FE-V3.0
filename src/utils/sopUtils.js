@@ -1,7 +1,7 @@
 /**
  * Backend Enums (from TecLogos.SOP.EnumsAndConstants/Enums.cs)
  *
- * SopApprovalStatus:  0=Pending  1=Approved  2=Rejected  3=Completed  4=Expired
+ * SopApprovalStatus:  0=Pending  1=Approved  2=Rejected  3=Completed  4=Expired  5=ReturnedForChanges
  * SopApprovalLevel:   0=NotStarted  1=InProgress  2=Submitted
  *                     3=Level1Approval  4=Level2Approval  5=Level3Approval
  *
@@ -17,6 +17,7 @@ export const SOP_APPROVAL_STATUS = {
   2: { label: 'Rejected',  color: 'bg-red-100 text-red-700',       dot: 'bg-red-500' },
   3: { label: 'Completed', color: 'bg-blue-100 text-blue-700',     dot: 'bg-blue-500' },
   4: { label: 'Expired',   color: 'bg-gray-100 text-gray-500',     dot: 'bg-gray-400' },
+  5: { label: 'Needs Changes', color: 'bg-violet-100 text-violet-700', dot: 'bg-violet-500' },
 }
 
 // ApprovalLevel display labels
@@ -116,6 +117,8 @@ export function normalizeSopList(data) {
  */
 export function normalizeSopItem(item) {
   if (!item) return item
+  const rawStatus = item.ApprovalStatus ?? item.approvalStatus ?? item.status ?? item.Status ?? 0
+  const statusNum = typeof rawStatus === 'string' ? Number(rawStatus) : rawStatus
   return {
     id:               item.ID               ?? item.id,
     sopTitle:         item.SopTitle         ?? item.sopTitle,
@@ -125,7 +128,7 @@ export function normalizeSopItem(item) {
     remark:           item.Remark           ?? item.remark,
     approvalLevel:    item.ApprovalLevel    ?? item.approvalLevel ?? 0,
     // map ApprovalStatus → status so existing components work unchanged
-    status:           item.ApprovalStatus   ?? item.status ?? 0,
+    status:           Number.isFinite(statusNum) ? statusNum : 0,
     approvalStatusLabel: item.ApprovalStatusLabel ?? item.approvalStatusLabel,
     createdByEmail:   item.CreatedByEmail   ?? item.createdByEmail,
     created:          item.Created          ?? item.created,

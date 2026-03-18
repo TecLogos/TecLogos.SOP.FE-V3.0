@@ -5,11 +5,14 @@ import LoginPage from './pages/LoginPage'
 import SetPasswordPage from './pages/SetPasswordPage'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminSopsPage from './pages/admin/AdminSopsPage'
+import AdminSopFormPage from './pages/admin/AdminSopFormPage'
+import AdminSopTrackingPage from './pages/admin/AdminSopTrackingPage'
 import AdminEmployeesPage from './pages/admin/AdminEmployeesPage'
-import { AdminWorkflowPage, AdminRolesPage } from './pages/admin/AdminWorkflowPage'
+import AdminEmployeeFormPage from './pages/admin/AdminEmployeeFormPage'
+import { AdminWorkflowPage } from './pages/admin/AdminWorkflowPage'
+import AdminWorkflowFormPage from './pages/admin/AdminWorkflowFormPage'
 import AdminGroupsPage from './pages/admin/AdminGroupsPage'
-import { InitiatorDashboard, InitiatorSopsPage } from './pages/initiator/InitiatorPages'
-import { SupervisorDashboard, SupervisorPendingPage } from './pages/supervisor/SupervisorPages'
+import AdminGroupFormPage from './pages/admin/AdminGroupFormPage'
 import { ApproverDashboard, ApproverPendingPage } from './pages/approver/ApproverPages'
 import { PageLoader } from './shared/components/Loaders'
 
@@ -24,12 +27,21 @@ function Protected({ allowedRoles, children }) {
   const { user, loading, role } = useAuth()
   const location = useLocation()
 
+  // Still loading auth state — show spinner, never redirect prematurely
   if (loading) return <PageLoader />
-  if (!user)   return <Navigate to="/login" state={{ from: location }} replace />
+
+  // Not authenticated
+  if (!user) return <Navigate to="/login" state={{ from: location }} replace />
+
+  // Authenticated but role not yet resolved (fetchMe in flight) — wait
+  if (!role) return <PageLoader />
+
+  // Authenticated but wrong role for this section
   if (allowedRoles && !allowedRoles.includes(role)) {
     const home = ROLE_HOME[role] || '/login'
     return <Navigate to={home} replace />
   }
+
   return children
 }
 
@@ -37,7 +49,9 @@ function RoleRedirect() {
   const { user, loading, role } = useAuth()
   if (loading) return <PageLoader />
   if (!user)   return <Navigate to="/login" replace />
-  return <Navigate to={ROLE_HOME[role] || '/login'} replace />
+  // Wait for role to resolve before redirecting
+  if (!role)   return <PageLoader />
+  return <Navigate to={ROLE_HOME[role] || '/initiator/dashboard'} replace />
 }
 
 export default function App() {
@@ -53,39 +67,36 @@ export default function App() {
         <Route path="/admin" element={
           <Protected allowedRoles={['Admin']}><MainLayout /></Protected>
         }>
-          <Route path="dashboard" element={<AdminDashboard />} />
-          <Route path="sops"      element={<AdminSopsPage />} />
-          <Route path="employees" element={<AdminEmployeesPage />} />
-          <Route path="groups"    element={<AdminGroupsPage />} />
-          <Route path="roles"     element={<AdminRolesPage />} />
-          <Route path="workflow"  element={<AdminWorkflowPage />} />
+          <Route path="dashboard"          element={<AdminDashboard />} />
+          <Route path="sops"               element={<AdminSopsPage />} />
+          <Route path="sops/new"           element={<AdminSopFormPage />} />
+          <Route path="sops/view/:id"      element={<AdminSopFormPage />} />
+          <Route path="sops/edit/:id"      element={<AdminSopFormPage />} />
+          <Route path="sops/:id/tracking"  element={<AdminSopTrackingPage />} />
+
+          <Route path="employees"          element={<AdminEmployeesPage />} />
+          <Route path="employees/new"      element={<AdminEmployeeFormPage />} />
+          <Route path="employees/view/:id" element={<AdminEmployeeFormPage />} />
+          <Route path="employees/edit/:id" element={<AdminEmployeeFormPage />} />
+
+          <Route path="groups"               element={<AdminGroupsPage />} />
+          <Route path="groups/new"           element={<AdminGroupFormPage />} />
+          <Route path="groups/view/:id"      element={<AdminGroupFormPage />} />
+          <Route path="groups/edit/:id"      element={<AdminGroupFormPage />} />
+
+          <Route path="workflow"           element={<AdminWorkflowPage />} />
+          <Route path="workflow/new"       element={<AdminWorkflowFormPage />} />
+          <Route path="workflow/view/:id"  element={<AdminWorkflowFormPage />} />
+          <Route path="workflow/edit/:id"  element={<AdminWorkflowFormPage />} />
+
           <Route index element={<Navigate to="/admin/dashboard" replace />} />
         </Route>
 
-        {/* Initiator */}
-        <Route path="/initiator" element={
-          <Protected allowedRoles={['Initiator']}><MainLayout /></Protected>
-        }>
-          <Route path="dashboard" element={<InitiatorDashboard />} />
-          <Route path="sops"      element={<InitiatorSopsPage />} />
-          <Route index element={<Navigate to="/initiator/dashboard" replace />} />
-        </Route>
-
-        {/* Supervisor */}
-        <Route path="/supervisor" element={
-          <Protected allowedRoles={['Supervisor']}><MainLayout /></Protected>
-        }>
-          <Route path="dashboard" element={<SupervisorDashboard />} />
-          <Route path="pending"   element={<SupervisorPendingPage />} />
-          <Route index element={<Navigate to="/supervisor/dashboard" replace />} />
-        </Route>
-
         {/* Approver */}
-        <Route path="/approver" element={
-          <Protected allowedRoles={['Approver']}><MainLayout /></Protected>
-        }>
+        <Route path="/approver">
           <Route path="dashboard" element={<ApproverDashboard />} />
           <Route path="pending"   element={<ApproverPendingPage />} />
+          <Route path="pending/:id/tracking" element={<AdminSopTrackingPage />} />
           <Route index element={<Navigate to="/approver/dashboard" replace />} />
         </Route>
 

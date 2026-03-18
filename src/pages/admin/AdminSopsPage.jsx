@@ -1,15 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { sopAPI } from '../../services/api'
 import SopTable from '../../shared/components/SopTable'
-import SopDetailModal from '../../shared/components/SopDetailModal'
 import Modal from '../../shared/components/Modal'
 import ConfirmDialog from '../../shared/components/ConfirmDialog'
 import { Spinner } from '../../shared/components/Loaders'
 import { normalizeSopItem, safeItems } from '../../utils/sopUtils'
 import { Plus, Search, Filter, Upload, RefreshCw, X } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { downloadBlob } from '../../utils/sopUtils'
 
-// ApprovalStatus: 0=Pending 1=Approved 2=Rejected 3=Completed 4=Expired
+// ApprovalStatus: 0=Pending 1=Approved 2=Rejected 3=Completed 4=Expired 5=NeedsChanges
 const STATUSES = [
   { value: '',  label: 'All Statuses' },
   { value: '0', label: 'Pending' },
@@ -17,85 +18,17 @@ const STATUSES = [
   { value: '2', label: 'Rejected' },
   { value: '3', label: 'Completed' },
   { value: '4', label: 'Expired' },
+  { value: '5', label: 'Needs Changes' },
 ]
 
-function SopFormModal({ open, onClose, onSaved }) {
-  const [form, setForm]     = useState({ sopTitle: '', expirationDate: '', remark: '' })
-  const [file, setFile]     = useState(null)
-  const [saving, setSaving] = useState(false)
-  const fileRef = useRef()
-
-  useEffect(() => {
-    if (open) { setForm({ sopTitle: '', expirationDate: '', remark: '' }); setFile(null) }
-  }, [open])
-
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!file) return toast.error('Please attach a PDF document')
-    setSaving(true)
-    try {
-      const fd = new FormData()
-      fd.append('SopTitle', form.sopTitle)
-      if (form.expirationDate) fd.append('ExpirationDate', form.expirationDate)
-      if (form.remark)         fd.append('Remark', form.remark)
-      fd.append('SopDocument', file)
-      await sopAPI.create(fd)
-      toast.success('SOP created successfully')
-      onSaved(); onClose()
-    } catch (err) {
-      toast.error(err.response?.data?.message || err.response?.data?.Message || 'Save failed')
-    } finally { setSaving(false) }
-  }
-
-  return (
-    <Modal open={open} onClose={onClose} title="Upload New SOP" size="md">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="label">SOP Title *</label>
-          <input className="input" required value={form.sopTitle}
-            onChange={e => setForm(f => ({ ...f, sopTitle: e.target.value }))}
-            placeholder="e.g. Emergency Shutdown Procedure" />
-        </div>
-        <div>
-          <label className="label">Expiry Date</label>
-          <input type="date" className="input" value={form.expirationDate}
-            onChange={e => setForm(f => ({ ...f, expirationDate: e.target.value }))} />
-        </div>
-        <div>
-          <label className="label">Remarks</label>
-          <textarea rows={3} className="input resize-none" value={form.remark}
-            onChange={e => setForm(f => ({ ...f, remark: e.target.value }))}
-            placeholder="Optional notes…" />
-        </div>
-        <div>
-          <label className="label">PDF Document *</label>
-          <div onClick={() => fileRef.current.click()}
-            className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-slate-400 hover:bg-gray-100 transition-all">
-            <Upload size={20} className="text-gray-400" />
-            <span className="text-sm text-gray-500">{file ? file.name : 'Click to browse PDF'}</span>
-          </div>
-          <input ref={fileRef} type="file" accept=".pdf" className="hidden"
-            onChange={e => setFile(e.target.files[0])} />
-        </div>
-        <div className="flex gap-3 pt-2">
-          <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
-          <button type="submit" disabled={saving} className="btn-primary flex-1 justify-center">
-            {saving ? <Spinner size="sm" /> : null}
-            {saving ? 'Saving…' : 'Create SOP'}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  )
-}
-
 export default function AdminSopsPage() {
+  const navigate = useNavigate()
   const [sops, setSops]         = useState([])
   const [total, setTotal]       = useState(0)
   const [loading, setLoading]   = useState(false)
   const [searchInput, setSearchInput] = useState('')
   const [status, setStatus]     = useState('')
-  const [formOpen, setFormOpen] = useState(false)
+  const [deleteSop, setDeleteSop] = useState(null)
   const [viewSop, setViewSop]   = useState(null)
 
   const load = async () => {
@@ -149,7 +82,7 @@ export default function AdminSopsPage() {
               {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
           </div>
-          <button onClick={() => setFormOpen(true)} className="btn-primary">
+          <button onClick={() => navigate('/admin/sops/new')} className="btn-primary">
             <Plus size={15} /> New SOP
           </button>
           <button onClick={load}
@@ -164,16 +97,41 @@ export default function AdminSopsPage() {
         <SopTable
           sops={sops}
           loading={loading}
-          actions={{ onView: sop => setViewSop({ id: sop.id, sopTitle: sop.sopTitle }) }}
+          actions={{
+            // Single View button shows full details + tracking
+            onViewDetails: sop => navigate(`/admin/sops/${sop.id}/tracking`, { state: { sop } }),
+            onDownload: async (sop) => {
+              try {
+                const res = await sopAPI.downloadPdf(sop.id)
+                const name = (sop.sopDocument || '').split(/[\\/]/).pop() || `SOP_${sop.id}.pdf`
+                downloadBlob(res.data, name)
+              } catch (err) {
+                toast.error(err.response?.data?.message || err.response?.data?.Message || 'Download failed')
+              }
+            },
+            onEdit: sop => navigate(`/admin/sops/edit/${sop.id}`, { state: { sop } }),
+            onDelete: sop => setDeleteSop(sop),
+          }}
         />
       </div>
 
-      <SopFormModal open={formOpen} onClose={() => setFormOpen(false)} onSaved={load} />
-      <SopDetailModal
-        sopId={viewSop?.id}
-        sopTitle={viewSop?.sopTitle}
-        open={!!viewSop?.id}
-        onClose={() => setViewSop(null)}
+      <ConfirmDialog
+        open={!!deleteSop}
+        title="Delete SOP?"
+        message={`This will remove "${deleteSop?.sopTitle || ''}". This cannot be undone.`}
+        confirmText="Delete"
+        confirmClass="btn-danger"
+        onConfirm={async () => {
+          try {
+            await sopAPI.delete(deleteSop.id)
+            toast.success('SOP deleted')
+            setDeleteSop(null)
+            load()
+          } catch (err) {
+            toast.error(err.response?.data?.message || err.response?.data?.Message || 'Delete failed')
+          }
+        }}
+        onClose={() => setDeleteSop(null)}
       />
     </div>
   )

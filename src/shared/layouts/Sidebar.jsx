@@ -12,7 +12,6 @@ const navByRole = {
     { label: 'Manage SOPs',    to: '/admin/sops',       icon: FileStack },
     { label: 'Employees',      to: '/admin/employees',  icon: Users },
     { label: 'Employee Groups',to: '/admin/groups',     icon: Shield },
-    { label: 'Roles',          to: '/admin/roles',      icon: BookOpen },
     { label: 'Workflow Setup', to: '/admin/workflow',   icon: Settings },
   ],
   Initiator: [

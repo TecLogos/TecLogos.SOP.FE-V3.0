@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { sopAPI } from '../../services/api'
-import SopDetailModal from '../../shared/components/SopDetailModal'
 import Modal from '../../shared/components/Modal'
 import { Spinner, PageLoader, EmptyState } from '../../shared/components/Loaders'
 import StatusBadge from '../../shared/components/StatusBadge'
-import { CheckCircle, XCircle, Eye, RefreshCw } from 'lucide-react'
+import { CheckCircle, XCircle, Eye, RefreshCw, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { formatDate, normalizeSopItem, safeItems } from '../../utils/sopUtils'
 
@@ -28,19 +28,34 @@ function usePending() {
   return { sops, loading, reload: load }
 }
 
-// ── Approval Modal ────────────────────────────────────────────────────────
-// Approve: PUT api/v1/sopdetail/approve/{sopId}  { Comments }
-// Reject:  PUT api/v1/sopdetail/reject/{sopId}   { Comments }
-function ApprovalModal({ sop, action, open, onClose, onDone }) {
+function ApprovalModal({ sop, open, onClose, onDone }) {
+  debugger ;
   const [remarks, setRemarks] = useState('')
+  const [nextApprovalLevel, setNextApprovalLevel] = useState()
   const [saving, setSaving]   = useState(false)
-  const isApprove             = action === 1
+  const [actionType, setActionType] = useState('approve') // approve | changes | reject
+  const isApprove = actionType === 'approve'
+  const isReject  = actionType === 'reject'
+
+  useEffect(() => {
+    if (!open) return
+    setRemarks('')
+    setActionType('approve')
+  }, [open])
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setSaving(true)
     try {
-      await sopAPI.processApproval({ sopID: sop.id, action, comments: remarks })
-      toast.success(isApprove ? 'SOP approved successfully' : 'SOP rejected')
+      if (isApprove) {
+        await sopAPI.processApproval({ sopID: sop.id, action: 1, comments: remarks })
+        toast.success('SOP approved successfully')
+      } else if (isReject) {
+        await sopAPI.processApproval({ sopID: sop.id, action: 2, comments: remarks })
+        toast.success('SOP rejected')
+      } else {
+        await sopAPI.returnForChanges(sop.id, { comments: remarks })
+        toast.success('Changes requested — SOP returned to initiator')
+      }
       onDone(); onClose()
     } catch (err) {
       toast.error(err.response?.data?.message || err.response?.data?.Message || 'Action failed')
@@ -49,7 +64,7 @@ function ApprovalModal({ sop, action, open, onClose, onDone }) {
 
   return (
     <Modal open={open} onClose={onClose}
-      title={isApprove ? 'Approve SOP' : 'Reject SOP'} size="sm">
+      title={isApprove ? 'Approve SOP' : isReject ? 'Reject SOP' : 'Request Changes'} size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="bg-white border border-gray-200 rounded-xl p-3">
           <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">SOP</p>
@@ -63,11 +78,33 @@ function ApprovalModal({ sop, action, open, onClose, onDone }) {
             )}
           </div>
         </div>
-        {!isApprove && (
+        <div className="grid grid-cols-3 gap-2">
+          <button type="button" onClick={() => setActionType('approve')}
+            className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${actionType === 'approve' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}>
+            <CheckCircle size={12} className="inline mr-1" /> Approve
+          </button>
+          <button type="button" onClick={() => setActionType('changes')}
+            className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${actionType === 'changes' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}>
+            <RotateCcw size={12} className="inline mr-1" /> Changes
+          </button>
+          <button type="button" onClick={() => setActionType('reject')}
+            className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${actionType === 'reject' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}>
+            <XCircle size={12} className="inline mr-1" /> Reject
+          </button>
+        </div>
+        {!isApprove && isReject && (
           <div className="flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl p-3">
             <XCircle size={16} className="text-red-500 mt-0.5 shrink-0" />
             <p className="text-sm text-red-700">
-              Rejecting will return this SOP to the initiator. Please provide a reason.
+              Rejecting will close this SOP as rejected. Please provide a reason.
+            </p>
+          </div>
+        )}
+        {!isApprove && !isReject && (
+          <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl p-3">
+            <XCircle size={16} className="text-amber-700 mt-0.5 shrink-0" />
+            <p className="text-sm text-amber-800">
+              This SOP will be returned to the initiator for revision (not rejected).
             </p>
           </div>
         )}
@@ -75,14 +112,14 @@ function ApprovalModal({ sop, action, open, onClose, onDone }) {
           <label className="label">Comments {!isApprove && '*'}</label>
           <textarea rows={3} className="input resize-none" value={remarks}
             onChange={e => setRemarks(e.target.value)} required={!isApprove}
-            placeholder={isApprove ? 'Optional approval notes…' : 'Reason for rejection (required)…'} />
+            placeholder={isApprove ? 'Optional approval notes…' : isReject ? 'Reason for rejection (required)…' : 'Explain what changes are needed (required)…'} />
         </div>
         <div className="flex gap-3">
           <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
           <button type="submit" disabled={saving}
-            className={`flex-1 justify-center ${isApprove ? 'btn-success' : 'btn-danger'}`}>
+            className={`flex-1 justify-center ${isApprove ? 'btn-success' : isReject ? 'btn-danger' : 'btn-outline border-amber-300 text-amber-700 hover:bg-amber-50'}`}>
             {saving ? <Spinner size="sm" /> : isApprove ? <CheckCircle size={13} /> : <XCircle size={13} />}
-            {saving ? 'Saving…' : isApprove ? 'Approve' : 'Reject'}
+            {saving ? 'Saving…' : isApprove ? 'Approve' : isReject ? 'Reject' : 'Request Changes'}
           </button>
         </div>
       </form>
@@ -141,9 +178,9 @@ export function ApproverDashboard() {
 
 // ── Pending Page ─────────────────────────────────────────────────────────
 export function ApproverPendingPage() {
+  const navigate = useNavigate()
   const { sops, loading, reload } = usePending()
-  const [viewSop, setViewSop]     = useState(null)
-  const [modal, setModal]         = useState(null)
+  const [modalSop, setModalSop]   = useState(null)
 
   const levelLabel = (l) =>
     l === 3 ? 'Level 1' : l === 4 ? 'Level 2' : l === 5 ? 'Level 3' : `L${l}`
@@ -174,7 +211,7 @@ export function ApproverPendingPage() {
                   <th className="table-th">#</th>
                   <th className="table-th-left">SOP Title</th>
                   <th className="table-th">Approval Level</th>
-                  <th className="table-th">Version</th>
+                  {/* <th className="table-th">Version</th> */}
                   <th className="table-th">Expiry</th>
                   <th className="table-th">Actions</th>
                 </tr>
@@ -189,23 +226,19 @@ export function ApproverPendingPage() {
                         {levelLabel(sop.approvalLevel)}
                       </span>
                     </td>
-                    <td className="table-td">
+                    {/* <td className="table-td">
                       <span className="font-mono text-xs bg-gray-100 border border-gray-200 px-2 py-0.5 rounded">v{sop.documentVersion ?? 1}</span>
-                    </td>
+                    </td> */}
                     <td className="table-td text-gray-500">{formatDate(sop.expirationDate)}</td>
                     <td className="table-td">
                       <div className="flex justify-center gap-1.5">
-                        <button onClick={() => setViewSop({ id: sop.id, sopTitle: sop.sopTitle })}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="View">
+                        <button onClick={() => navigate(`/approver/pending/${sop.id}/tracking`, { state: { sop } })}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="View Tracking">
                           <Eye size={14} />
                         </button>
-                        <button onClick={() => setModal({ sop, action: 1 })}
-                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center gap-1">
-                          <CheckCircle size={11} /> Approve
-                        </button>
-                        <button onClick={() => setModal({ sop, action: 2 })}
-                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors flex items-center gap-1">
-                          <XCircle size={11} /> Reject
+                        <button onClick={() => setModalSop(sop)}
+                          className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-800 text-white hover:bg-slate-900 transition-colors">
+                          Action
                         </button>
                       </div>
                     </td>
@@ -216,15 +249,9 @@ export function ApproverPendingPage() {
           </div>
         )}
       </div>
-      <SopDetailModal
-        sopId={viewSop?.id}
-        sopTitle={viewSop?.sopTitle}
-        open={!!viewSop?.id}
-        onClose={() => setViewSop(null)}
-      />
-      {modal && (
-        <ApprovalModal sop={modal.sop} action={modal.action} open={!!modal}
-          onClose={() => setModal(null)} onDone={reload} />
+      {modalSop && (
+        <ApprovalModal sop={modalSop} open={!!modalSop}
+          onClose={() => setModalSop(null)} onDone={reload} />
       )}
     </div>
   )

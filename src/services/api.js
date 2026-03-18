@@ -3,7 +3,9 @@ import axios from 'axios'
 // ── Axios instance ─────────────────────────────────────────────────────────
 const api = axios.create({
   baseURL: '',
-  headers: { 'Content-Type': 'application/json' },
+  // Don't force a single Content-Type globally.
+  // - JSON requests will be set by axios when you pass a plain object
+  // - multipart/form-data must be set by the browser/axios (boundary), so we must not override it
   withCredentials: true,
 })
 
@@ -46,18 +48,24 @@ export const authAPI = {
 export const sopAPI = {
   getAll:             (params) => api.get('/api/v1/sopdetail/all', { params }),
   getById:            (id)     => api.get(`/api/v1/sopdetail/${id}/tracking`),
-  create:             (form)   => api.post('/api/v1/sopdetail/create', form, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  create:             (formData) => api.post('/api/v1/sopdetail/create', formData),
+  update:             (id, formData) => api.put(`/api/v1/sopdetail/update/${id}`, formData),
+  delete:             (id) => api.delete(`/api/v1/sopdetail/${id}`),
+  submit:             (id, data) => api.put(`/api/v1/sopdetail/submit/${id}`, { Comments: data?.comments ?? null }),
+  resubmit:           (id, data) => api.put(`/api/v1/sopdetail/resubmit/${id}`, { Comments: data?.comments ?? null }),
+  returnForChanges:   (id, data) => api.put(`/api/v1/sopdetail/return-for-changes/${id}`, { Comments: data?.comments ?? null }),
+  getInitiatorAssigned: (params) => api.get('/api/v1/sopdetail/initiator-assigned', { params }),
   getMySops:          (params) => api.get('/api/v1/sopdetail/my-history', { params }),
-  getSupervisorPending: ()     => api.get('/api/v1/sopdetail/pending-list'),
-  getApproverPending:   ()     => api.get('/api/v1/sopdetail/pending-list'),
+  getSupervisorPending: ()     => api.get('/api/v1/SopApproveReject/pending-list'),
+  getApproverPending:   ()     => api.get('/api/v1/SopApproveReject/pending-list'),
   supervisorForward:    (id, data) => api.put(`/api/v1/sopdetail/approve/${id}`, { Comments: data.comments ?? null }),
-  supervisorReqChanges: (id, data) => api.put(`/api/v1/sopdetail/reject/${id}`,  { Comments: data.comments ?? null }),
+  supervisorReqChanges: (id, data) => api.put(`/api/v1/sopdetail/return-for-changes/${id}`, { Comments: data.comments ?? null }),
   processApproval: ({ sopID, action, comments }) =>
     action === 1
-      ? api.put(`/api/v1/sopdetail/approve/${sopID}`, { Comments: comments ?? null })
-      : api.put(`/api/v1/sopdetail/reject/${sopID}`,  { Comments: comments ?? null }),
-  getTracking: (id) => api.get(`/api/v1/sopdetail/${id}/tracking`),
-  download:    (id) => api.get(`/api/v1/sopdetail/${id}/tracking`),
+      ? api.put(`/api/v1/SopApproveReject/approve/${sopID}`, { Comments: comments ?? null }, { NextApprovalLevel: data.nextApprovalLevel })
+      : api.put(`/api/v1/SopApproveReject/reject/${sopID}`,  { Comments: comments ?? null }),
+  // getTracking: (id) => api.get(`/api/v1/sopdetail/${id}/tracking`),
+  // downloadPdf: (id) => api.get(`/api/v1/sopdetail/${id}/download`, { responseType: 'blob' }),
 }
 
 export const employeeAPI = {
@@ -66,16 +74,7 @@ export const employeeAPI = {
   create:     (data)             => api.post('/api/v1/employee/new', data),
   update:     (id, data)         => api.put(`/api/v1/employee/update/${id}`, data),
   delete:     (id)               => api.delete(`/api/v1/employee/delete/${id}`),
-  getRoles:   (employeeId)       => api.get('/api/v1/employeerole/list', { params: { employeeId } }),
   sendInvite: (employeeId)       => api.post(`/api/v1/authonboarding/send-invite/${employeeId}`),
-}
-
-export const rolesAPI = {
-  getAll:  ()     => api.get('/api/v1/roles/list'),
-  getById: (id)   => api.get(`/api/v1/roles/${id}`),
-  create:  (data) => api.post('/api/v1/roles', data),
-  update:  (data) => api.put(`/api/v1/roles/${data.id}`, data),
-  delete:  (id)   => api.delete(`/api/v1/roles/${id}`),
 }
 
 export const groupAPI = {

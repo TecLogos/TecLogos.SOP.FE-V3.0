@@ -13,11 +13,11 @@ const ROLE_HOME = {
 }
 
 export default function LoginPage() {
-  const { login }               = useAuth()
-  const navigate                = useNavigate()
-  const [form, setForm]         = useState({ email: '', password: '' })
-  const [loading, setLoading]   = useState(false)
-  const [showPw, setShowPw]     = useState(false)
+  const { login, role: contextRole } = useAuth()
+  const navigate                     = useNavigate()
+  const [form, setForm]              = useState({ email: '', password: '' })
+  const [loading, setLoading]        = useState(false)
+  const [showPw, setShowPw]          = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -25,8 +25,14 @@ export default function LoginPage() {
     try {
       const data = await login(form)
       toast.success('Welcome back!')
-      const role = data.roleName || ''
-      navigate(ROLE_HOME[role] || '/initiator/dashboard')
+
+      // Priority order for determining role:
+      // 1. data.roleName — extracted from login response or JWT by AuthContext
+      // 2. contextRole   — set by fetchMe() inside AuthContext.login()
+      // 3. Fallback      → '/initiator/dashboard' (never leaves user stranded)
+      const resolvedRole = data.roleName || contextRole || ''
+      const destination  = ROLE_HOME[resolvedRole] || '/initiator/dashboard'
+      navigate(destination)
     } catch (err) {
       toast.error(err.message || 'Invalid credentials')
     } finally {
@@ -36,20 +42,17 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-slate-200 flex items-center justify-center p-4">
-      {/* Subtle grid pattern */}
       <div
         className="absolute inset-0 opacity-[0.04]"
         style={{ backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '32px 32px' }}
       />
 
       <div className="relative w-full max-w-sm">
-        {/* Logo */}
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">TecLogos SOP</h1>
           <p className="text-slate-400 text-sm mt-1">Sign in to your account</p>
         </div>
 
-        {/* Card */}
         <div className="bg-slate-500 border border-slate-500 rounded-2xl p-6 shadow-2xl">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>

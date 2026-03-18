@@ -49,7 +49,7 @@ export default function AdminDashboard() {
 
   if (loading) return <PageLoader />
 
-  // ApprovalStatus: 0=Pending 1=Approved 2=Rejected 3=Completed 4=Expired
+  // ApprovalStatus: 0=Pending 1=Approved 2=Rejected 3=Completed 4=Expired 5=NeedsChanges
   // ApprovalLevel:  0=NotStarted 1=InProgress 2=Submitted 3=L1 4=L2 5=L3
   const byApprovalStatus = (s) => sops.filter(x => x.status === s).length
   const pending = sops.filter(x => x.approvalLevel >= 2 && x.status === 0).length
@@ -68,11 +68,12 @@ export default function AdminDashboard() {
     .slice(0, 5)
 
   // ApprovalStatus label map
-  const statusLabel = (s) => ['Pending','Approved','Rejected','Completed','Expired'][s] ?? 'Unknown'
+  const statusLabel = (s) => ['Pending','Approved','Rejected','Completed','Expired','Needs Changes'][s] ?? 'Unknown'
   const statusColor = (s) =>
     s === 3 ? 'bg-emerald-100 text-emerald-700' :
     s === 2 ? 'bg-red-100 text-red-700'         :
     s === 1 ? 'bg-blue-100 text-blue-700'        :
+    s === 5 ? 'bg-violet-100 text-violet-700'    :
               'bg-gray-100 text-gray-600'
 
   return (
