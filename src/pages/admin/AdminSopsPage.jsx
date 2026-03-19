@@ -1,14 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { sopAPI } from '../../services/api'
 import SopTable from '../../shared/components/SopTable'
-import Modal from '../../shared/components/Modal'
 import ConfirmDialog from '../../shared/components/ConfirmDialog'
-import { Spinner } from '../../shared/components/Loaders'
-import { normalizeSopItem, safeItems } from '../../utils/sopUtils'
-import { Plus, Search, Filter, Upload, RefreshCw, X } from 'lucide-react'
+import { normalizeSopItem, safeItems, downloadBlob } from '../../utils/sopUtils'
+import { Plus, Search, Filter, RefreshCw, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { downloadBlob } from '../../utils/sopUtils'
 
 // ApprovalStatus: 0=Pending 1=Approved 2=Rejected 3=Completed 4=Expired 5=NeedsChanges
 const STATUSES = [
@@ -23,36 +20,45 @@ const STATUSES = [
 
 export default function AdminSopsPage() {
   const navigate = useNavigate()
-  const [sops, setSops]         = useState([])
-  const [total, setTotal]       = useState(0)
-  const [loading, setLoading]   = useState(false)
+  const [sops, setSops]               = useState([])
+  const [total, setTotal]             = useState(0)
+  const [loading, setLoading]         = useState(false)
   const [searchInput, setSearchInput] = useState('')
-  const [status, setStatus]     = useState('')
-  const [deleteSop, setDeleteSop] = useState(null)
-  const [viewSop, setViewSop]   = useState(null)
+  const [status, setStatus]           = useState('')
+  const [deleteSop, setDeleteSop]     = useState(null)
 
   const load = async () => {
     setLoading(true)
     try {
-      // GET api/v1/sopdetail/all?approvalStatus=&year=
+      // GET /api/v1/SopDetail/list?approvalStatus=&year=
       const params = {}
       if (status !== '') params.approvalStatus = Number(status)
       const { data } = await sopAPI.getAll(params)
-      // safeItems handles all nesting shapes from backend
       const normalized = safeItems(data).map(normalizeSopItem)
-      // client-side title search
       const q = searchInput.trim().toLowerCase()
       const filtered = q
         ? normalized.filter(s => s.sopTitle?.toLowerCase().includes(q))
         : normalized
       setSops(filtered)
       setTotal(filtered.length)
-    } catch (err) {
+    } catch {
       toast.error('Failed to load SOPs')
-    } finally { setLoading(false) }
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => { load() }, [status])
+
+  // Download handler: opens the SopDocument URL/path directly
+  const handleDownload = (sop) => {
+    if (!sop.sopDocument) {
+      toast.error('No document attached to this SOP')
+      return
+    }
+    // Try opening in new tab (works for both relative paths and full URLs)
+    window.open(sop.sopDocument, '_blank')
+  }
 
   return (
     <div className="min-h-screen p-6 surface space-y-6">
@@ -63,15 +69,18 @@ export default function AdminSopsPage() {
           <p className="text-gray-500 text-sm mt-1">{total} total documents</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <input value={searchInput} onChange={e => setSearchInput(e.target.value)}
+          <input
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && load()}
             placeholder="Search by title…"
-            className="w-44 px-2.5 py-1.5 border-2 border-gray-300 hover:border-gray-400 rounded-lg text-sm focus:outline-none focus:border-slate-400 bg-gray-50" />
+            className="w-44 px-2.5 py-1.5 border-2 border-gray-300 hover:border-gray-400 rounded-lg text-sm focus:outline-none focus:border-slate-400 bg-gray-50"
+          />
           <button onClick={load}
             className="p-1.5 rounded-md border-2 border-cyan-200 bg-cyan-50 text-gray-500 hover:bg-cyan-100" title="Search">
             <Search size={16} />
           </button>
-          <button onClick={() => { setSearchInput(''); setStatus(''); }}
+          <button onClick={() => { setSearchInput(''); setStatus('') }}
             className="p-1.5 rounded-md border-2 border-red-200 bg-red-50 text-red-500 hover:bg-red-100" title="Clear">
             <X size={16} />
           </button>
@@ -98,18 +107,11 @@ export default function AdminSopsPage() {
           sops={sops}
           loading={loading}
           actions={{
-            // Single View button shows full details + tracking
+            // View → goes to SOP details (which has Take Action + Download)
             onViewDetails: sop => navigate(`/admin/sops/${sop.id}/tracking`, { state: { sop } }),
-            onDownload: async (sop) => {
-              try {
-                const res = await sopAPI.downloadPdf(sop.id)
-                const name = (sop.sopDocument || '').split(/[\\/]/).pop() || `SOP_${sop.id}.pdf`
-                downloadBlob(res.data, name)
-              } catch (err) {
-                toast.error(err.response?.data?.message || err.response?.data?.Message || 'Download failed')
-              }
-            },
-            onEdit: sop => navigate(`/admin/sops/edit/${sop.id}`, { state: { sop } }),
+            // Download directly from table row (completed SOPs only)
+            onDownload: handleDownload,
+            onEdit:   sop => navigate(`/admin/sops/edit/${sop.id}`, { state: { sop } }),
             onDelete: sop => setDeleteSop(sop),
           }}
         />
@@ -118,7 +120,7 @@ export default function AdminSopsPage() {
       <ConfirmDialog
         open={!!deleteSop}
         title="Delete SOP?"
-        message={`This will remove "${deleteSop?.sopTitle || ''}". This cannot be undone.`}
+        message={`This will permanently remove "${deleteSop?.sopTitle || ''}". This cannot be undone.`}
         confirmText="Delete"
         confirmClass="btn-danger"
         onConfirm={async () => {

@@ -32,10 +32,13 @@ export default function AdminWorkflowFormPage() {
 
   // Load groups
   useEffect(() => {
-    groupAPI.getAll().then(r => setGroups(Array.isArray(r.data) ? r.data : [])).catch(() => {})
+    groupAPI.getAll().then(r => {
+      const grps = r.data?.data ?? r.data?.Data ?? r.data
+      setGroups(Array.isArray(grps) ? grps : [])
+    }).catch(() => {})
   }, [])
 
-  // Load stage for edit
+  // Load stage for edit — GET /api/v1/WorkFlowSetUp/{id}
   useEffect(() => {
     if (!isEdit) return
     setLoading(true)
@@ -113,10 +116,7 @@ export default function AdminWorkflowFormPage() {
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
-            <button type="button" onClick={() => navigate('/admin/workflow')}
-              className="p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 transition-colors">
-              <ArrowLeft size={16} />
-            </button>
+           
             <div>
               <h1 className="page-title">{isView ? 'View Workflow Stage' : isEdit ? 'Edit Workflow Stage' : 'Add Workflow Stage(s)'}</h1>
               <p className="text-gray-500 text-sm mt-0.5">

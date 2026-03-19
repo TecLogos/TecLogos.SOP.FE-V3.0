@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { groupAPI } from '../../services/api'
 import ConfirmDialog from '../../shared/components/ConfirmDialog'
 import { Spinner, EmptyState } from '../../shared/components/Loaders'
-import { Plus, Pencil, Trash2, Users, RefreshCw, Eye } from 'lucide-react'
+import { Plus, Pencil, Trash2, RefreshCw, Eye } from 'lucide-react'
+import { GrGroup } from "react-icons/gr";
 import toast from 'react-hot-toast'
 
 export default function AdminGroupsPage() {
@@ -15,7 +16,11 @@ export default function AdminGroupsPage() {
 
   const load = async () => {
     setLoading(true)
-    try { const { data } = await groupAPI.getAll(); setGroups(data || []) }
+    try {
+      const { data } = await groupAPI.getAll()
+      const list = data?.data ?? data?.Data ?? data
+      setGroups(Array.isArray(list) ? list : [])
+    }
     catch { toast.error('Failed to load groups') }
     finally { setLoading(false) }
   }
@@ -70,7 +75,7 @@ export default function AdminGroupsPage() {
                     <td className="table-td-left">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 bg-slate-100 border border-slate-200 rounded-xl flex items-center justify-center shrink-0">
-                          <Users size={15} className="text-slate-600" />
+                          <GrGroup size={15} className="text-slate-600" />
                         </div>
                         <span className="font-medium text-gray-900">{group.name}</span>
                       </div>

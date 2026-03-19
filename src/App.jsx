@@ -3,6 +3,8 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import MainLayout from './shared/layouts/MainLayout'
 import LoginPage from './pages/LoginPage'
 import SetPasswordPage from './pages/SetPasswordPage'
+
+// Admin pages
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminSopsPage from './pages/admin/AdminSopsPage'
 import AdminSopFormPage from './pages/admin/AdminSopFormPage'
@@ -13,30 +15,29 @@ import { AdminWorkflowPage } from './pages/admin/AdminWorkflowPage'
 import AdminWorkflowFormPage from './pages/admin/AdminWorkflowFormPage'
 import AdminGroupsPage from './pages/admin/AdminGroupsPage'
 import AdminGroupFormPage from './pages/admin/AdminGroupFormPage'
-import { ApproverDashboard, ApproverPendingPage } from './pages/approver/ApproverPages'
+
+// Shared single pending approvals page (all non-admin roles)
+import PendingApprovalsPage from './pages/pending/PendingApprovalsPage'
+
 import { PageLoader } from './shared/components/Loaders'
 
+// Role → home path mapping
+// Only Admin gets a dashboard; all others go straight to pending list
 const ROLE_HOME = {
   Admin:      '/admin/dashboard',
-  Initiator:  '/initiator/dashboard',
-  Supervisor: '/supervisor/dashboard',
-  Approver:   '/approver/dashboard',
+  Initiator:  '/pending/approvals',
+  Supervisor: '/pending/approvals',
+  Approver:   '/pending/approvals',
 }
 
 function Protected({ allowedRoles, children }) {
   const { user, loading, role } = useAuth()
   const location = useLocation()
 
-  // Still loading auth state — show spinner, never redirect prematurely
   if (loading) return <PageLoader />
+  if (!user)   return <Navigate to="/login" state={{ from: location }} replace />
+  if (!role)   return <PageLoader />
 
-  // Not authenticated
-  if (!user) return <Navigate to="/login" state={{ from: location }} replace />
-
-  // Authenticated but role not yet resolved (fetchMe in flight) — wait
-  if (!role) return <PageLoader />
-
-  // Authenticated but wrong role for this section
   if (allowedRoles && !allowedRoles.includes(role)) {
     const home = ROLE_HOME[role] || '/login'
     return <Navigate to={home} replace />
@@ -49,21 +50,20 @@ function RoleRedirect() {
   const { user, loading, role } = useAuth()
   if (loading) return <PageLoader />
   if (!user)   return <Navigate to="/login" replace />
-  // Wait for role to resolve before redirecting
   if (!role)   return <PageLoader />
-  return <Navigate to={ROLE_HOME[role] || '/initiator/dashboard'} replace />
+  return <Navigate to={ROLE_HOME[role] || '/pending/approvals'} replace />
 }
 
 export default function App() {
   return (
     <AuthProvider>
       <Routes>
-        {/* Public */}
+        {/* ── Public ── */}
         <Route path="/login"        element={<LoginPage />} />
         <Route path="/set-password" element={<SetPasswordPage />} />
         <Route path="/"             element={<RoleRedirect />} />
 
-        {/* Admin */}
+        {/* ── Admin (has dashboard + full management) ── */}
         <Route path="/admin" element={
           <Protected allowedRoles={['Admin']}><MainLayout /></Protected>
         }>
@@ -79,10 +79,10 @@ export default function App() {
           <Route path="employees/view/:id" element={<AdminEmployeeFormPage />} />
           <Route path="employees/edit/:id" element={<AdminEmployeeFormPage />} />
 
-          <Route path="groups"               element={<AdminGroupsPage />} />
-          <Route path="groups/new"           element={<AdminGroupFormPage />} />
-          <Route path="groups/view/:id"      element={<AdminGroupFormPage />} />
-          <Route path="groups/edit/:id"      element={<AdminGroupFormPage />} />
+          <Route path="groups"             element={<AdminGroupsPage />} />
+          <Route path="groups/new"         element={<AdminGroupFormPage />} />
+          <Route path="groups/view/:id"    element={<AdminGroupFormPage />} />
+          <Route path="groups/edit/:id"    element={<AdminGroupFormPage />} />
 
           <Route path="workflow"           element={<AdminWorkflowPage />} />
           <Route path="workflow/new"       element={<AdminWorkflowFormPage />} />
@@ -92,15 +92,24 @@ export default function App() {
           <Route index element={<Navigate to="/admin/dashboard" replace />} />
         </Route>
 
-        {/* Approver */}
-        <Route path="/approver">
-          <Route path="dashboard" element={<ApproverDashboard />} />
-          <Route path="pending"   element={<ApproverPendingPage />} />
-          <Route path="pending/:id/tracking" element={<AdminSopTrackingPage />} />
-          <Route index element={<Navigate to="/approver/dashboard" replace />} />
+        {/* ── Shared Pending Approvals (Approver, Supervisor, Initiator) ──
+            Single dynamic page — backend filters pending SOPs by userId
+            No dashboard for non-admin roles; this IS their home page       */}
+        <Route path="/pending" element={
+          <Protected allowedRoles={['Approver', 'Supervisor', 'Initiator']}>
+            <MainLayout />
+          </Protected>
+        }>
+          <Route path="approvals" element={<PendingApprovalsPage />} />
+          <Route index element={<Navigate to="/pending/approvals" replace />} />
         </Route>
 
-        {/* Fallback */}
+        {/* Legacy approver routes — redirect to unified pending page */}
+        <Route path="/approver/*"   element={<Navigate to="/pending/approvals" replace />} />
+        <Route path="/supervisor/*" element={<Navigate to="/pending/approvals" replace />} />
+        <Route path="/initiator/*"  element={<Navigate to="/pending/approvals" replace />} />
+
+        {/* ── Fallback ── */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AuthProvider>

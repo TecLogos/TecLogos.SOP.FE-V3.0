@@ -31,6 +31,7 @@ export function AdminWorkflowPage() {
   const load = async () => {
     setLoading(true)
     try {
+      // GET /api/v1/WorkFlowSetUp/list
       const stagesRes = await workflowAPI.getAll()
       const stageData = stagesRes.data?.data ?? stagesRes.data?.Data ?? stagesRes.data ?? []
       setStages(Array.isArray(stageData) ? stageData : [])

@@ -31,25 +31,26 @@ export default function AdminSopFormPage() {
       setInit(passedSop.sopDocument || '')
       setLoading(false)
     } else {
-      // Fallback: fetch all and find
+      // Fallback: fetch by ID using GET /api/v1/SopDetail/{sopId}
       setLoading(true)
-      sopAPI.getAll({})
+      sopAPI.getById(id)
         .then(({ data }) => {
-          const list = Array.isArray(data) ? data : (data.data || [])
-          const sop = list.find(s => (s.id || s.ID) === id)
+          const sop = data?.data ?? data?.Data ?? data
           if (sop) {
             setForm({
-              sopTitle: sop.sopTitle || sop.SopTitle || '',
-              expirationDate: sop.expirationDate || sop.ExpirationDate ? String(sop.expirationDate || sop.ExpirationDate).slice(0, 10) : '',
-              remark: sop.remark || sop.Remark || '',
+              sopTitle: sop.SopTitle || sop.sopTitle || '',
+              expirationDate: (sop.ExpirationDate || sop.expirationDate)
+                ? String(sop.ExpirationDate || sop.expirationDate).slice(0, 10)
+                : '',
+              remark: sop.Remark || sop.remark || '',
             })
-            setInit(sop.sopDocument || sop.SopDocument || '')
+            setInit(sop.SopDocument || sop.sopDocument || '')
           } else {
             toast.error('SOP not found')
             navigate('/admin/sops')
           }
         })
-        .catch(() => toast.error('Failed to load SOP details'))
+        .catch(() => { toast.error('Failed to load SOP details'); navigate('/admin/sops') })
         .finally(() => setLoading(false))
     }
   }, [id, isEdit, passedSop, navigate])

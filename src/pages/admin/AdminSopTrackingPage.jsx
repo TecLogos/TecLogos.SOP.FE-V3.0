@@ -1,48 +1,74 @@
+/**
+ * AdminSopTrackingPage (simplified)
+ * ──────────────────────────────────
+ * • Shows SOP details card
+ * • "Take Action" button → Approve / Reject modal (uses SopApproveRejectAPI)
+ * • "Download PDF" button appears when SOP ApprovalStatus === 3 (Completed)
+ * • NO timeline / workflow steps display — removed as per requirements
+ */
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
-import { sopAPI } from '../../services/api'
-import { downloadBlob, formatDate } from '../../utils/sopUtils'
+import { sopAPI, sopApproveRejectAPI } from '../../services/api'
+import { downloadBlob, formatDate, getLevelLabel, getStatusInfo } from '../../utils/sopUtils'
 import { Spinner } from '../../shared/components/Loaders'
 import Modal from '../../shared/components/Modal'
-import { ArrowLeft, CheckCircle2, XCircle, Clock, RotateCcw, CheckCircle, Download } from 'lucide-react'
+import {
+  ArrowLeft, CheckCircle, XCircle, AlertCircle,
+  Download, FileText, Calendar, Tag
+} from 'lucide-react'
 import toast from 'react-hot-toast'
 
-const STEP_COLOR = { 1: 'text-emerald-600', 2: 'text-red-600', 5: 'text-violet-700', 0: 'text-amber-500' }
-const STEP_ICON  = { 1: CheckCircle2,        2: XCircle,        5: RotateCcw,         0: Clock }
-
 export default function AdminSopTrackingPage() {
-  const { id }     = useParams()
-  const navigate   = useNavigate()
-  const location   = useLocation()
-  const passedSop  = location.state?.sop
+  const { id }    = useParams()
+  const navigate  = useNavigate()
+  const location  = useLocation()
+  const passedSop = location.state?.sop
 
-  const [data, setData]       = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [actionOpen, setActionOpen] = useState(false)
+  const [sop, setSop]           = useState(null)
+  const [loading, setLoading]   = useState(true)
+  const [actionOpen, setAction] = useState(false)
+  const [downloading, setDl]    = useState(false)
 
-  useEffect(() => {
+  const load = () => {
     if (!id) return
     setLoading(true)
-    sopAPI.getTracking(id)
-      .then(r => setData(r.data?.data ?? r.data?.Data ?? r.data))
-      .catch(() => toast.error('Failed to load SOP tracking details'))
+    sopAPI.getById(id)
+      .then(r => {
+        const d = r.data?.data ?? r.data?.Data ?? r.data
+        setSop(d)
+      })
+      .catch(() => toast.error('Failed to load SOP'))
       .finally(() => setLoading(false))
-  }, [id])
+  }
 
-  const sopTitle = passedSop?.sopTitle || data?.sopTitle || data?.SopTitle || '—'
+  useEffect(() => { load() }, [id])
 
-  const steps = (data?.Steps ?? data?.steps ?? [])
-  const lastAction = [...steps].reverse().find(s => (s.ApprovalStatus ?? s.approvalStatus) != null)
-  const currentApprovalStatus = lastAction?.ApprovalStatus ?? lastAction?.approvalStatus ?? 0
-  const canDownload = currentApprovalStatus === 3
+  // Normalise fields
+  const sopTitle       = sop?.SopTitle      ?? sop?.sopTitle      ?? passedSop?.sopTitle ?? '—'
+  const expiryDate     = sop?.ExpirationDate ?? sop?.expirationDate ?? passedSop?.expirationDate
+  const approvalLevel  = sop?.ApprovalLevel  ?? sop?.approvalLevel  ?? passedSop?.approvalLevel ?? 0
+  const approvalStatus = sop?.ApprovalStatus ?? sop?.approvalStatus ?? passedSop?.status ?? 0
+  const sopDocument    = sop?.SopDocument    ?? sop?.sopDocument    ?? passedSop?.sopDocument
+
+  // ApprovalStatus 3 = Completed → allow download
+  const isCompleted = approvalStatus === 3
+  const statusInfo  = getStatusInfo(approvalStatus)
 
   const handleDownload = async () => {
+    if (!sopDocument) { toast.error('No document attached to this SOP'); return }
+    setDl(true)
     try {
-      const res = await sopAPI.downloadPdf(id)
-      const safeTitle = (sopTitle || 'SOP').replace(/[<>:"/\\|?*\u0000-\u001F]/g, '').trim()
-      downloadBlob(res.data, `${safeTitle || 'SOP'}_${id}.pdf`)
-    } catch (err) {
-      toast.error(err.response?.data?.message || err.response?.data?.Message || 'Download failed')
+      // Try to fetch the file by URL/path stored in sopDocument
+      const response = await fetch(sopDocument)
+      if (!response.ok) throw new Error('Download failed')
+      const blob = await response.blob()
+      const filename = sopDocument.split(/[\\/]/).pop() || `SOP_${id}.pdf`
+      downloadBlob(blob, filename)
+    } catch {
+      // Fallback: open in new tab
+      window.open(sopDocument, '_blank')
+    } finally {
+      setDl(false)
     }
   }
 
@@ -56,164 +82,186 @@ export default function AdminSopTrackingPage() {
 
   return (
     <div className="min-h-screen p-6 surface space-y-6">
-      {/* Header */}
+
+      {/* ── Header ── */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => navigate(-1)}
-            className="p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 transition-colors">
-            <ArrowLeft size={16} />
-          </button>
+   
           <div>
-            <h1 className="page-title">SOP Tracking Details</h1>
-            <p className="text-gray-500 text-sm mt-0.5">
-              View approval workflow and tracking history for this SOP
-            </p>
+            <h1 className="page-title">SOP Details</h1>
+            <p className="text-gray-500 text-sm mt-0.5">Review and take action on this SOP</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={() => setActionOpen(true)}
-            className="btn-primary">
-            <CheckCircle size={15} /> Action
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setAction(true)}
+            className="btn-primary"
+          >
+            <CheckCircle size={15} /> Take Action
           </button>
-          {canDownload && (
-            <button type="button" onClick={handleDownload}
-              className="btn-success">
-              <Download size={15} /> Download PDF
+
+          {isCompleted && (
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={downloading}
+              className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-sm font-semibold shadow-sm transition disabled:opacity-50"
+            >
+              {downloading ? <Spinner size="sm" /> : <Download size={15} />}
+              Download PDF
             </button>
           )}
-          <button type="button" onClick={() => navigate(-1)}
-            className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 text-sm font-medium transition-colors">
+
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 text-sm font-medium transition-colors"
+          >
             Back
           </button>
         </div>
       </div>
 
-      {data ? (
-        <div className="space-y-6">
-          {/* SOP Title Card */}
-          <div className="card-surface border border-gray-200 rounded-2xl shadow-sm p-6 bg-white shrink-0">
-            <h2 className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-1">Document Title</h2>
-            <p className="text-lg font-bold text-gray-900">{sopTitle}</p>
+      {/* ── SOP Detail Card ── */}
+      <div className="card-surface border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+
+        {/* Title bar */}
+        <div className="bg-white border-b border-gray-100 px-6 py-5 flex items-start gap-4">
+          <div className="w-12 h-12 bg-slate-100 rounded-xl border border-slate-200 flex items-center justify-center shrink-0">
+            <FileText size={22} className="text-slate-600" />
           </div>
-
-          {/* Workflow Steps Card */}
-          <div className="card-surface border border-gray-200 rounded-2xl shadow-sm bg-white p-6 w-full">
-            <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide border-b border-gray-100 pb-3 mb-4">
-              Workflow Timeline
-            </h3>
-
-            {(data.Steps ?? data.steps ?? []).length === 0 ? (
-              <div className="text-center py-12">
-                <Clock size={40} className="mx-auto text-gray-200 mb-3" />
-                <p className="text-gray-500 font-medium">No workflow steps configured yet.</p>
-                <p className="text-sm text-gray-400 mt-1">This SOP may still be in draft or needs configuration.</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {(data.Steps ?? data.steps ?? []).map((step, idx) => {
-                  const status    = step.ApprovalStatus ?? step.approvalStatus
-                  const Icon      = STEP_ICON[status] ?? Clock
-                  const color     = STEP_COLOR[status] ?? 'text-gray-400'
-                  const label     = step.StageStatusLabel ?? step.stageStatusLabel ?? 'Not Yet Reached'
-                  const stageName = step.StageName ?? step.stageName ?? `Stage ${idx + 1}`
-                  const level     = step.ApprovalLevel ?? step.approvalLevel
-                  const isSup     = step.IsSupervisor ?? step.isSupervisor
-                  const comments  = step.Comments ?? step.comments
-                  const actionedOn = step.ActionedOn ?? step.actionedOn
-                  const actionedBy = step.ActionedByEmail ?? step.actionedByEmail
-
-                  return (
-                    <div key={step.ID ?? step.id ?? idx}
-                      className="flex items-start gap-4 p-4 rounded-xl border border-gray-100 bg-gray-50/50 hover:bg-gray-50 hover:border-gray-200 transition-colors">
-                      
-                      <div className="w-8 h-8 rounded-full bg-white border-2 border-gray-200 flex items-center justify-center text-sm font-bold text-gray-500 shrink-0 shadow-sm mt-0.5">
-                        {idx + 1}
-                      </div>
-                      
-                      <div className={`mt-2 shrink-0 ${color}`}>
-                        <Icon size={18} />
-                      </div>
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap mb-1">
-                          <span className="text-base font-bold text-gray-800">{stageName}</span>
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-white border border-gray-200 text-gray-600 shadow-sm leading-none pt-1">
-                            {isSup ? 'Supervisor' : `Level ${level}`}
-                          </span>
-                          <span className={`text-sm font-bold ml-1 ${color}`}>{label}</span>
-                        </div>
-                        
-                        {(actionedBy || actionedOn) && (
-                          <div className="flex items-center gap-3 text-sm text-gray-500 mt-1.5 flex-wrap">
-                            {actionedBy && <span className="flex items-center gap-1 font-medium bg-white px-2 py-0.5 rounded shadow-sm border border-gray-100">👤 {actionedBy}</span>}
-                            {actionedOn && <span className="flex items-center gap-1 bg-white px-2 py-0.5 rounded shadow-sm border border-gray-100">🕒 {formatDate(actionedOn)}</span>}
-                          </div>
-                        )}
-                        
-                        {comments && (
-                          <div className="mt-3 bg-white p-3 rounded-lg border border-gray-100 shadow-sm relative">
-                            <div className="absolute top-0 left-0 w-1 h-full bg-slate-200 rounded-l-lg"></div>
-                            <p className="text-sm text-gray-600 pl-1"><span className="text-gray-400 font-semibold mr-1">Remarks:</span>{comments}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-bold text-gray-900 leading-tight">{sopTitle}</h2>
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              {/* Status badge */}
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${statusInfo.color}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${statusInfo.dot}`} />
+                {statusInfo.label}
+              </span>
+              {/* Approval level badge */}
+              {approvalLevel > 0 && (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-violet-100 text-violet-700">
+                  {getLevelLabel(approvalLevel)}
+                </span>
+              )}
+              {/* Completed badge */}
+              {isCompleted && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
+                  <CheckCircle size={11} /> PDF available
+                </span>
+              )}
+            </div>
           </div>
         </div>
-      ) : (
-        <div className="card-surface border border-gray-200 rounded-2xl shadow-sm bg-white p-12 text-center">
-          <p className="text-gray-500 font-medium">No tracking data available for this document.</p>
-        </div>
-      )}
 
-      <ActionModal
+        {/* Meta info grid */}
+        <div className="px-6 py-5 grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center shrink-0">
+              <Calendar size={14} className="text-amber-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Expiry Date</p>
+              <p className={`text-sm font-semibold mt-0.5 ${
+                expiryDate && new Date(expiryDate) < new Date()
+                  ? 'text-red-600'
+                  : 'text-gray-800'
+              }`}>
+                {formatDate(expiryDate)}
+                {expiryDate && new Date(expiryDate) < new Date() && (
+                  <span className="ml-1.5 text-xs font-normal text-red-400">(Expired)</span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0">
+              <Tag size={14} className="text-slate-500" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Document</p>
+              <p className="text-sm font-semibold text-gray-800 mt-0.5 truncate max-w-xs">
+                {sopDocument
+                  ? sopDocument.split(/[\\/]/).pop()
+                  : <span className="text-gray-400 font-normal italic">No document</span>
+                }
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Download CTA when completed */}
+        {isCompleted && (
+          <div className="mx-6 mb-5 bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <CheckCircle size={18} className="text-emerald-600 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-emerald-800">SOP Completed & Approved</p>
+                <p className="text-xs text-emerald-600 mt-0.5">The document is ready to download.</p>
+              </div>
+            </div>
+            <button
+              onClick={handleDownload}
+              disabled={downloading}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50 shrink-0"
+            >
+              {downloading ? <Spinner size="sm" /> : <Download size={14} />}
+              Download
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Action Modal ── */}
+      <SopActionModal
         open={actionOpen}
-        onClose={() => setActionOpen(false)}
-        sop={{ id, sopTitle }}
-        onDone={() => {
-          setActionOpen(false)
-          // refresh tracking after action
-          setLoading(true)
-          sopAPI.getTracking(id)
-            .then(r => setData(r.data?.data ?? r.data?.Data ?? r.data))
-            .catch(() => {})
-            .finally(() => setLoading(false))
-        }}
+        onClose={() => setAction(false)}
+        sop={{ id, sopTitle, approvalLevel }}
+        onDone={load}
       />
     </div>
   )
 }
 
-function ActionModal({ open, onClose, sop, onDone }) {
-  const [actionType, setActionType] = useState('approve') // approve | changes | reject
+// ── Approve / Reject Modal ─────────────────────────────────────────────────
+function SopActionModal({ open, onClose, sop, onDone }) {
+  const [action, setAction]     = useState('approve')
   const [comments, setComments] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [saving, setSaving]     = useState(false)
+
+  const currentLevel = sop?.approvalLevel ?? 0
+  // NextApprovalLevel is set by the backend workflow (SD.ApprovalLevel + 1).
+  // Pass it directly — no user dropdown needed.
+  const nextApprovalLevel = sop?.nextApprovalLevel ?? sop?.NextApprovalLevel ?? 0
+  const isApprove = action === 'approve'
 
   useEffect(() => {
     if (!open) return
-    setActionType('approve')
+    setAction('approve')
     setComments('')
   }, [open])
 
-  const submit = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
+    if (!isApprove && !comments.trim()) {
+      toast.error('Comments are required when rejecting')
+      return
+    }
     setSaving(true)
     try {
-      if (actionType === 'approve') {
-        await sopAPI.processApproval({ sopID: sop.id, action: 1, comments })
-        toast.success('Approved and forwarded to next level')
-      } else if (actionType === 'changes') {
-        await sopAPI.returnForChanges(sop.id, { comments })
-        toast.success('Changes requested — returned to initiator')
+      if (isApprove) {
+        await sopApproveRejectAPI.approve(sop.id, comments || null, nextApprovalLevel)
+        toast.success('SOP approved successfully')
       } else {
-        await sopAPI.processApproval({ sopID: sop.id, action: 2, comments })
-        toast.success('Rejected')
+        await sopApproveRejectAPI.reject(sop.id, comments)
+        toast.success('SOP rejected')
       }
       onDone?.()
+      onClose()
     } catch (err) {
       toast.error(err.response?.data?.message || err.response?.data?.Message || 'Action failed')
     } finally {
@@ -221,52 +269,94 @@ function ActionModal({ open, onClose, sop, onDone }) {
     }
   }
 
-  const needsComment = actionType !== 'approve'
-
   return (
     <Modal open={open} onClose={onClose} title="SOP Action" size="sm">
-      <form onSubmit={submit} className="space-y-4">
-        <div className="bg-white border border-gray-200 rounded-xl p-3">
-          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">SOP</p>
-          <p className="text-sm font-semibold text-gray-800 mt-0.5">{sop?.sopTitle}</p>
+      <form onSubmit={handleSubmit} className="space-y-4">
+
+        {/* SOP chip */}
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-3.5 space-y-1.5">
+          <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">SOP</p>
+          <p className="text-sm font-semibold text-gray-800">{sop?.sopTitle}</p>
+          {currentLevel > 0 && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-violet-100 text-violet-700">
+              {getLevelLabel(currentLevel)}
+            </span>
+          )}
+          {isApprove && nextApprovalLevel > 0 && (
+            <p className="text-xs text-gray-400">
+              Next stage → <span className="font-semibold text-gray-600">{getLevelLabel(nextApprovalLevel)}</span>
+            </p>
+          )}
+          {isApprove && nextApprovalLevel === 0 && (
+            <p className="text-xs text-emerald-600 font-semibold">
+              ✓ Final approval — SOP will be marked Completed
+            </p>
+          )}
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <button type="button" onClick={() => setActionType('approve')}
-            className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${actionType === 'approve' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}>
-            Approve
+        {/* Approve / Reject toggle */}
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => setAction('approve')}
+            className={`flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${
+              isApprove
+                ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                : 'bg-white text-gray-500 border-gray-200 hover:border-emerald-200 hover:text-emerald-700'
+            }`}>
+            <CheckCircle size={14} /> Approve
           </button>
-          <button type="button" onClick={() => setActionType('changes')}
-            className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${actionType === 'changes' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}>
-            Needs Changes
-          </button>
-          <button type="button" onClick={() => setActionType('reject')}
-            className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${actionType === 'reject' ? 'bg-red-100 text-red-700 border-red-200' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}>
-            Reject
+          <button type="button" onClick={() => setAction('reject')}
+            className={`flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${
+              !isApprove
+                ? 'bg-red-600 text-white border-red-600 shadow-sm'
+                : 'bg-white text-gray-500 border-gray-200 hover:border-red-200 hover:text-red-700'
+            }`}>
+            <XCircle size={14} /> Reject
           </button>
         </div>
 
+
+
+        {/* Reject warning */}
+        {!isApprove && (
+          <div className="flex items-start gap-2 bg-red-50 border border-red-100 rounded-xl p-3">
+            <AlertCircle size={14} className="text-red-500 shrink-0 mt-0.5" />
+            <p className="text-xs text-red-700">
+              Rejecting permanently marks this SOP as rejected. Comments required.
+            </p>
+          </div>
+        )}
+
+        {/* Comments */}
         <div>
-          <label className="label">Comments {needsComment ? '*' : '(optional)'}</label>
-          <textarea rows={3} className="input resize-none" value={comments}
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+            Comments {!isApprove && <span className="text-red-500">*</span>}
+          </label>
+          <textarea
+            rows={3}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-slate-300"
+            value={comments}
             onChange={e => setComments(e.target.value)}
-            required={needsComment}
-            placeholder={
-              actionType === 'approve'
-                ? 'Optional notes…'
-                : actionType === 'reject'
-                  ? 'Reason for rejection (required)…'
-                  : 'Explain what changes are needed (required)…'
-            }
+            required={!isApprove}
+            placeholder={isApprove ? 'Optional notes…' : 'Reason for rejection (required)…'}
           />
         </div>
 
+        {/* Buttons */}
         <div className="flex gap-3">
-          <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button type="button" onClick={onClose}
+            className="flex-1 px-4 py-2 rounded-xl text-sm font-semibold border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
           <button type="submit" disabled={saving}
-            className={`flex-1 justify-center ${actionType === 'approve' ? 'btn-success' : actionType === 'reject' ? 'btn-danger' : 'btn-outline border-amber-300 text-amber-700 hover:bg-amber-50'}`}>
-            {saving ? <Spinner size="sm" /> : null}
-            {saving ? 'Saving…' : actionType === 'approve' ? 'Approve' : actionType === 'reject' ? 'Reject' : 'Request Changes'}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-colors disabled:opacity-50 ${
+              isApprove ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
+            }`}>
+            {saving
+              ? <><Spinner size="sm" /> Saving…</>
+              : isApprove
+                ? <><CheckCircle size={14} /> Approve</>
+                : <><XCircle size={14} /> Reject</>
+            }
           </button>
         </div>
       </form>

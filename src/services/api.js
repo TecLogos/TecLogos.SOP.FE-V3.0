@@ -3,9 +3,6 @@ import axios from 'axios'
 // ── Axios instance ─────────────────────────────────────────────────────────
 const api = axios.create({
   baseURL: '',
-  // Don't force a single Content-Type globally.
-  // - JSON requests will be set by axios when you pass a plain object
-  // - multipart/form-data must be set by the browser/axios (boundary), so we must not override it
   withCredentials: true,
 })
 
@@ -45,27 +42,38 @@ export const authAPI = {
   refresh: ()     => api.post('/api/v1/auth/refresh-token'),
 }
 
+// ── SOP Detail API ────────────────────────────────────────────────────────
+// GET    /api/v1/SopDetail/list
+// GET    /api/v1/SopDetail/{sopId}
+// POST   /api/v1/SopDetail/create
+// PUT    /api/v1/SopDetail/update/{sopId}
+// DELETE /api/v1/SopDetail/{sopId}
 export const sopAPI = {
-  getAll:             (params) => api.get('/api/v1/sopdetail/all', { params }),
-  getById:            (id)     => api.get(`/api/v1/sopdetail/${id}/tracking`),
-  create:             (formData) => api.post('/api/v1/sopdetail/create', formData),
-  update:             (id, formData) => api.put(`/api/v1/sopdetail/update/${id}`, formData),
-  delete:             (id) => api.delete(`/api/v1/sopdetail/${id}`),
-  submit:             (id, data) => api.put(`/api/v1/sopdetail/submit/${id}`, { Comments: data?.comments ?? null }),
-  resubmit:           (id, data) => api.put(`/api/v1/sopdetail/resubmit/${id}`, { Comments: data?.comments ?? null }),
-  returnForChanges:   (id, data) => api.put(`/api/v1/sopdetail/return-for-changes/${id}`, { Comments: data?.comments ?? null }),
-  getInitiatorAssigned: (params) => api.get('/api/v1/sopdetail/initiator-assigned', { params }),
-  getMySops:          (params) => api.get('/api/v1/sopdetail/my-history', { params }),
-  getSupervisorPending: ()     => api.get('/api/v1/SopApproveReject/pending-list'),
-  getApproverPending:   ()     => api.get('/api/v1/SopApproveReject/pending-list'),
-  supervisorForward:    (id, data) => api.put(`/api/v1/sopdetail/approve/${id}`, { Comments: data.comments ?? null }),
-  supervisorReqChanges: (id, data) => api.put(`/api/v1/sopdetail/return-for-changes/${id}`, { Comments: data.comments ?? null }),
-  processApproval: ({ sopID, action, comments }) =>
-    action === 1
-      ? api.put(`/api/v1/SopApproveReject/approve/${sopID}`, { Comments: comments ?? null }, { NextApprovalLevel: data.nextApprovalLevel })
-      : api.put(`/api/v1/SopApproveReject/reject/${sopID}`,  { Comments: comments ?? null }),
-  // getTracking: (id) => api.get(`/api/v1/sopdetail/${id}/tracking`),
-  // downloadPdf: (id) => api.get(`/api/v1/sopdetail/${id}/download`, { responseType: 'blob' }),
+  getAll:   (params) => api.get('/api/v1/SopDetail/list', { params }),
+  getById:  (id)     => api.get(`/api/v1/SopDetail/${id}`),
+  create:   (formData) => api.post('/api/v1/SopDetail/create', formData),
+  update:   (id, formData) => api.put(`/api/v1/SopDetail/update/${id}`, formData),
+  delete:   (id) => api.delete(`/api/v1/SopDetail/${id}`),
+}
+
+// ── SOP Approve/Reject API ────────────────────────────────────────────────
+// PUT  /api/v1/SopApproveReject/approve/{sopId}  Body: { Comments, NextApprovalLevel }
+// PUT  /api/v1/SopApproveReject/reject/{sopId}   Body: { Comments }
+// GET  /api/v1/SopApproveReject/pending-list     → { success, data: SopListResponse }
+export const sopApproveRejectAPI = {
+  getPendingList: (params) => api.get('/api/v1/SopApproveReject/pending-list', { params }),
+
+  approve: (sopId, comments, nextApprovalLevel) =>
+    api.put(`/api/v1/SopApproveReject/approve/${sopId}`, {
+      Comments: comments ?? null,
+      NextApprovalLevel: nextApprovalLevel ?? 0,
+    }),
+
+  reject: (sopId, comments) =>
+    api.put(`/api/v1/SopApproveReject/reject/${sopId}`, {
+      Comments: comments,
+      NextApprovalLevel: 0,
+    }),
 }
 
 export const employeeAPI = {
@@ -105,57 +113,39 @@ export const onboardingAPI = {
   resendInvite:(employeeId)      => api.post(`/api/v1/authonboarding/send-invite/${employeeId}`),
 }
 
-
 // ── WORKFLOW SETUP ────────────────────────────────────────────────────────
-// Controller: api/v1/workflowsetup  (Admin only)
-//
-// Response shape for getAll:
-//   { success, data: [WorkFlowSetUpResponse] }
-//
-// WorkFlowSetUpResponse fields:
-//   ID, StageName, ApprovalLevel (0-5), IsSupervisor,
-//   EmployeeGroupID, GroupName, ApprovalLevelLabel, TypeLabel
-//
-// CreateWorkFlowStageRequest:
-//   { StageName, ApprovalLevel, IsSupervisor, EmployeeGroupID }
-//
-// Bulk create body: List<CreateWorkFlowStageRequest>
+// GET    /api/v1/WorkFlowSetUp/list
+// GET    /api/v1/WorkFlowSetUp/{id}
+// POST   /api/v1/WorkFlowSetUp
+// POST   /api/v1/WorkFlowSetUp/bulk
+// PUT    /api/v1/WorkFlowSetUp/{id}
+// DELETE /api/v1/WorkFlowSetUp/{id}
 export const workflowAPI = {
-  // GET  api/v1/workflowsetup/list  → { success, data: [...] }
-  getAll: () => api.get('/api/v1/workflowsetup/list'),
+  getAll:   ()    => api.get('/api/v1/WorkFlowSetUp/list'),
+  getById:  (id)  => api.get(`/api/v1/WorkFlowSetUp/${id}`),
 
-  // GET  api/v1/workflowsetup/{id}
-  getById: (id) => api.get(`/api/v1/workflowsetup/${id}`),
-
-  // POST api/v1/workflowsetup
-  // Body: { StageName, ApprovalLevel, IsSupervisor, EmployeeGroupID }
-  create: (data) => api.post('/api/v1/workflowsetup', {
+  create: (data) => api.post('/api/v1/WorkFlowSetUp', {
     StageName:       data.stageName,
     ApprovalLevel:   data.approvalLevel,
     IsSupervisor:    data.isSupervisor,
     EmployeeGroupID: data.employeeGroupID || null,
   }),
 
-  // POST api/v1/workflowsetup/bulk
-  // Body: [{ StageName, ApprovalLevel, IsSupervisor, EmployeeGroupID }, ...]
-  bulkCreate: (rows) => api.post('/api/v1/workflowsetup/bulk', rows.map(r => ({
+  bulkCreate: (rows) => api.post('/api/v1/WorkFlowSetUp/bulk', rows.map(r => ({
     StageName:       r.stageName,
     ApprovalLevel:   r.approvalLevel,
     IsSupervisor:    r.isSupervisor,
     EmployeeGroupID: r.employeeGroupID || null,
   }))),
 
-  // PUT  api/v1/workflowsetup/{id}
-  // Body: { StageName, ApprovalLevel, IsSupervisor, EmployeeGroupID }
-  update: (id, data) => api.put(`/api/v1/workflowsetup/${id}`, {
+  update: (id, data) => api.put(`/api/v1/WorkFlowSetUp/${id}`, {
     StageName:       data.stageName,
     ApprovalLevel:   data.approvalLevel,
     IsSupervisor:    data.isSupervisor,
     EmployeeGroupID: data.employeeGroupID || null,
   }),
 
-  // DELETE api/v1/workflowsetup/{id}
-  delete: (id) => api.delete(`/api/v1/workflowsetup/${id}`),
+  delete: (id) => api.delete(`/api/v1/WorkFlowSetUp/${id}`),
 }
 
 export default api

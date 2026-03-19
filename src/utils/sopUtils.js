@@ -127,6 +127,7 @@ export function normalizeSopItem(item) {
     documentVersion:  item.SopDocumentVersion ?? item.documentVersion ?? 1,
     remark:           item.Remark           ?? item.remark,
     approvalLevel:    item.ApprovalLevel    ?? item.approvalLevel ?? 0,
+    nextApprovalLevel: item.NextApprovalLevel ?? item.nextApprovalLevel ?? 0,
     // map ApprovalStatus → status so existing components work unchanged
     status:           Number.isFinite(statusNum) ? statusNum : 0,
     approvalStatusLabel: item.ApprovalStatusLabel ?? item.approvalStatusLabel,

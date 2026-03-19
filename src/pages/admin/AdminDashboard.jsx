@@ -28,7 +28,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     Promise.allSettled([
-      // GET api/v1/sopdetail/all  → { success, data: { TotalCount, Items: [...] } }
+      // GET /api/v1/SopDetail/list  → { success, data: [SopDetailResponse] }
       sopAPI.getAll({}),
       // GET api/v1/employee/list/1/1
       employeeAPI.getAll(1, 1),
@@ -42,7 +42,9 @@ export default function AdminDashboard() {
       }
       if (empRes.status === 'fulfilled') {
         const e = empRes.value.data
-        setEmpCount(e?.count ?? e?.Count ?? 0)
+        // Backend: { success, data: { TotalCount, Items } } or { count }
+        const totalCount = e?.data?.TotalCount ?? e?.data?.totalCount ?? e?.TotalCount ?? e?.count ?? e?.Count ?? 0
+        setEmpCount(totalCount)
       }
     }).finally(() => setLoading(false))
   }, [])
