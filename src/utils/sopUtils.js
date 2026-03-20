@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Backend Enums (from TecLogos.SOP.EnumsAndConstants/Enums.cs)
  *
  * SopApprovalStatus:  0=Pending  1=Approved  2=Rejected  3=Completed  4=Expired  5=ReturnedForChanges
@@ -32,7 +32,7 @@ export const SOP_APPROVAL_LEVEL = {
 
 /**
  * getStatusInfo(approvalStatus)
- * Used by StatusBadge — maps backend ApprovalStatus (0-4) to display info
+ * Used by StatusBadge â€” maps backend ApprovalStatus (0-4) to display info
  */
 export function getStatusInfo(approvalStatus) {
   return SOP_APPROVAL_STATUS[approvalStatus] ?? {
@@ -54,7 +54,7 @@ export function getLevelLabel(approvalLevel) {
  * formatDate(dateStr)
  */
 export function formatDate(dateStr) {
-  if (!dateStr) return '—'
+  if (!dateStr) return 'â€”'
   return new Date(dateStr).toLocaleDateString('en-GB', {
     day: '2-digit', month: 'short', year: 'numeric',
   })
@@ -80,6 +80,26 @@ export function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url)
 }
 
+export function resolveDocumentUrl(path) {
+  if (!path) return ''
+  const trimmed = String(path).trim()
+  if (!trimmed) return ''
+  if (/^https?:\/\//i.test(trimmed)) return encodeURI(trimmed)
+  const normalized = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+  return encodeURI(normalized)
+}
+
+export async function downloadSopDocument(path, fallbackName = 'document.pdf') {
+  const url = resolveDocumentUrl(path)
+  if (!url) throw new Error('No document path available')
+
+  const response = await fetch(url)
+  if (!response.ok) throw new Error('Download failed')
+
+  const blob = await response.blob()
+  const nameFromPath = String(path).split(/[\\/]/).pop()
+  downloadBlob(blob, nameFromPath || fallbackName)
+}
 /**
  * normalizeSopList(data)
  * The backend wraps list responses in { success, data: { TotalCount, Items: [...] } }
@@ -96,7 +116,7 @@ export function downloadBlob(blob, filename) {
  */
 export function safeItems(responseData) {
   if (!responseData) return []
-  // Walk: .data or .Data  →  .Items or .items  →  or the value itself
+  // Walk: .data or .Data  â†’  .Items or .items  â†’  or the value itself
   const level1 = responseData?.data ?? responseData?.Data ?? responseData
   if (Array.isArray(level1?.Items)) return level1.Items
   if (Array.isArray(level1?.items)) return level1.items
@@ -117,23 +137,32 @@ export function normalizeSopList(data) {
  */
 export function normalizeSopItem(item) {
   if (!item) return item
+
   const rawStatus = item.ApprovalStatus ?? item.approvalStatus ?? item.status ?? item.Status ?? 0
   const statusNum = typeof rawStatus === 'string' ? Number(rawStatus) : rawStatus
+
+  const rawApprovalLevel = item.ApprovalLevel ?? item.approvalLevel ?? 0
+  const approvalLevelNum = typeof rawApprovalLevel === 'string' ? Number(rawApprovalLevel) : rawApprovalLevel
+
+  const rawNextApprovalLevel = item.NextApprovalLevel ?? item.nextApprovalLevel ?? 0
+  const nextApprovalLevelNum = typeof rawNextApprovalLevel === 'string' ? Number(rawNextApprovalLevel) : rawNextApprovalLevel
+
   return {
+    // keep originals too
+    ...item,
     id:               item.ID               ?? item.id,
     sopTitle:         item.SopTitle         ?? item.sopTitle,
     expirationDate:   item.ExpirationDate   ?? item.expirationDate,
     sopDocument:      item.SopDocument      ?? item.sopDocument,
     documentVersion:  item.SopDocumentVersion ?? item.documentVersion ?? 1,
     remark:           item.Remark           ?? item.remark,
-    approvalLevel:    item.ApprovalLevel    ?? item.approvalLevel ?? 0,
-    nextApprovalLevel: item.NextApprovalLevel ?? item.nextApprovalLevel ?? 0,
-    // map ApprovalStatus → status so existing components work unchanged
+    approvalLevel:    Number.isFinite(approvalLevelNum) ? approvalLevelNum : 0,
+    nextApprovalLevel: Number.isFinite(nextApprovalLevelNum) ? nextApprovalLevelNum : 0,
+    // map ApprovalStatus ? status so existing components work unchanged
     status:           Number.isFinite(statusNum) ? statusNum : 0,
     approvalStatusLabel: item.ApprovalStatusLabel ?? item.approvalStatusLabel,
     createdByEmail:   item.CreatedByEmail   ?? item.createdByEmail,
     created:          item.Created          ?? item.created,
-    // keep originals too
-    ...item,
   }
 }
+

@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
-import { createPortal } from 'react-dom'
+﻿import { useEffect } from 'react'
 import { X } from 'lucide-react'
+import { createPortal } from 'react-dom'
 
 export default function Modal({ open, onClose, title, children, size = 'md' }) {
   useEffect(() => {
