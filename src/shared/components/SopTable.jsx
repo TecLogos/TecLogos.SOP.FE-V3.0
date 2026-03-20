@@ -17,6 +17,22 @@ export default function SopTable({ sops = [], loading, actions = {}, emptyMessag
     </div>
   )
 
+  function getStageAndStatus(sop) {
+    if (sop.status == 3) {
+      return ('Completed')
+    }
+    else if (sop.status == 4) {
+      return ('Expired')
+    } else if (sop.approvalLevel == 0) {
+      return ('Pending')
+    }
+    else {
+      return('In Progress')
+    }
+    
+  }
+
+
   const levelLabel = (l) =>
     ['Not Started', 'In Progress', 'Submitted', 'L1 Approval', 'L2 Approval', 'L3 Approval'][l] ?? `L${l}`
 
@@ -30,10 +46,12 @@ export default function SopTable({ sops = [], loading, actions = {}, emptyMessag
             <th className="table-th">#</th>
             <th className="table-th-left">SOP Title</th>
             <th className="table-th-left">Document</th>
-            <th className="table-th">Stage</th>
             <th className="table-th">Status</th>
+            <th className="table-th">Current Stage</th>
+            <th className="table-th">Next Stage</th>
+            {/* <th className="table-th">Status</th> */}
             <th className="table-th">Expiry</th>
-            <th className="table-th">Created</th>
+            {/* <th className="table-th">Created</th> */}
             <th className="table-th">Actions</th>
           </tr>
         </thead>
@@ -72,13 +90,22 @@ export default function SopTable({ sops = [], loading, actions = {}, emptyMessag
 
                 <td className="table-td">
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
-                    {levelLabel(sop.approvalLevel)}
+                    {getStageAndStatus(sop)}
                   </span>
                 </td>
-
                 <td className="table-td">
-                  <StatusBadge status={sop.status} />
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
+                    {sop.stageName}
+                  </span>
+
+                </td> <td className="table-td">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
+                    {sop.nextStageName}
+                  </span>
                 </td>
+                {/* <td className="table-td">
+                  <StatusBadge status={sop.status} />
+                </td> */}
 
                 <td className="table-td">
                   <span className={
@@ -90,7 +117,7 @@ export default function SopTable({ sops = [], loading, actions = {}, emptyMessag
                   </span>
                 </td>
 
-                <td className="table-td text-gray-500">{formatDate(sop.created)}</td>
+                {/* <td className="table-td text-gray-500">{formatDate(sop.created)}</td> */}
 
                 <td className="table-td">
                   <div className="flex items-center justify-center gap-1">

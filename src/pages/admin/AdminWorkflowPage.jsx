@@ -6,11 +6,6 @@ import { EmptyState } from '../../shared/components/Loaders'
 import { Plus, Pencil, Trash2, GitBranch, RefreshCw, BookOpen, Eye } from 'lucide-react'
 import toast from 'react-hot-toast'
 
-const LEVEL_LABELS = {
-  0: 'Not Started', 1: 'In Progress', 2: 'Submitted',
-  3: 'Level 1', 4: 'Level 2', 5: 'Level 3 (Max)',
-}
-
 const LEVEL_COLORS = {
   0: 'bg-gray-100 text-gray-600',
   1: 'bg-amber-100 text-amber-700',
@@ -51,9 +46,9 @@ export function AdminWorkflowPage() {
     }
   }
 
-  const supervisorStages = stages.filter(s => s.isSupervisor || s.IsSupervisor)
-  const approverStages   = stages.filter(s => !(s.isSupervisor || s.IsSupervisor))
-    .sort((a, b) => (a.approvalLevel ?? a.ApprovalLevel) - (b.approvalLevel ?? b.ApprovalLevel))
+  // const supervisorStages = stages.filter(s => s.isSupervisor || s.IsSupervisor)
+  // const approverStages   = stages.filter(s => !(s.isSupervisor || s.IsSupervisor))
+  //   .sort((a, b) => (a.approvalLevel ?? a.ApprovalLevel) - (b.approvalLevel ?? b.ApprovalLevel))
 
   const getLevel = s => s.approvalLevel ?? s.ApprovalLevel ?? 0
   const getName  = s => s.stageName     ?? s.StageName     ?? '—'
@@ -83,7 +78,7 @@ export function AdminWorkflowPage() {
       {/* Pipeline visual */}
       {stages.length > 0 && (
         <div className="card-surface border border-gray-200 rounded-2xl p-4">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Approval Pipeline Order</p>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Approval Order</p>
           <div className="flex items-center gap-2 flex-wrap">
             {[...stages].sort((a, b) => getLevel(a) - getLevel(b)).map((s, i, arr) => (
               <div key={getId(s)} className="flex items-center gap-2">
@@ -111,7 +106,7 @@ export function AdminWorkflowPage() {
             desc="Add at least one supervisor stage (Level 2) and up to three approval levels (3–5)"
             action={
               <button onClick={() => navigate('/admin/workflow/new')} className="btn-primary mt-2">
-                <Plus size={14} /> Add First Stage
+                <Plus size={14} /> Add Stage
               </button>
             }
           />
@@ -123,13 +118,13 @@ export function AdminWorkflowPage() {
                   <th className="table-th">#</th>
                   <th className="table-th-left">Stage Name</th>
                   <th className="table-th">Level</th>
-                  <th className="table-th">Type</th>
+                  <th className="table-th">Supervisor Approval Required</th>
                   <th className="table-th">Employee Group</th>
                   <th className="table-th">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-gray-50 divide-y divide-gray-200">
-                {[...supervisorStages, ...approverStages].map((stage, idx) => (
+                {stages.map((stage, idx) => (
                   <tr key={getId(stage)} className="hover:bg-white transition-colors group">
                     <td className="table-td text-gray-400">{idx + 1}</td>
                     <td className="table-td-left">
@@ -142,20 +137,18 @@ export function AdminWorkflowPage() {
                       </div>
                     </td>
                     <td className="table-td">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold
-                        ${LEVEL_COLORS[getLevel(stage)] || 'bg-gray-100 text-gray-600'}`}>
-                        {LEVEL_LABELS[getLevel(stage)] || `Level ${getLevel(stage)}`}
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold`}>
+                        {getLevel(stage)}
                       </span>
                     </td>
                     <td className="table-td">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold
-                        ${getIsSup(stage) ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                        {getIsSup(stage) ? 'Supervisor' : 'Approver'}
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold`}>
+                        {getIsSup(stage) ? 'Yes' : 'No'}
                       </span>
                     </td>
                     <td className="table-td">
                       {getIsSup(stage)
-                        ? <span className="text-xs text-gray-400 italic">Manager-based</span>
+                        ? <span className="text-xs text-gray-400 italic">(Supervisor Approval)</span>
                         : <span className="text-gray-700">{getGroup(stage)}</span>}
                     </td>
                     <td className="table-td">

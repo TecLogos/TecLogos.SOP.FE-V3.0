@@ -40,7 +40,7 @@ function Sidebar({ onClose }) {
     : '?'
 
   return (
-    <aside className="h-full w-64 bg-gray-100 text-slate-800 border-r border-gray-200 shadow-sm flex flex-col overflow-y-auto">
+    <aside className="h-full w-62 bg-gray-100 text-slate-800 border-r border-gray-200 shadow-sm flex flex-col overflow-y-auto">
       {/* Mobile close */}
       {onClose && (
         <button

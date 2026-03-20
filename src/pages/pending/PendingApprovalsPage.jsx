@@ -4,13 +4,15 @@
  * Single dynamic page for ALL roles (Approver, Supervisor, etc.)
  * Calls GET /api/v1/SopApproveReject/pending-list  (backend filters by userId)
  *
- * NextApprovalLevel is returned by the backend in each SOP record
- * (SQL: WF.ApprovalLevel WHERE WF.ApprovalLevel = SD.ApprovalLevel + 1)
- * → No dropdown needed. We pass it through automatically on approve.
+ * Year filter: The backend @Year SQL parameter is declared but NOT used in the
+ * WHERE clause, so filtering is done client-side by ExpirationDate year.
+ *
+ * NextApprovalLevel comes from the backend (WF.ApprovalLevel = SD.ApprovalLevel + 1).
+ * No dropdown — passed through automatically on approve.
  */
 import { useEffect, useState, useCallback } from 'react'
 import { sopApproveRejectAPI } from '../../services/api'
-import { normalizeSopItem, formatDate, getStatusInfo, getLevelLabel } from '../../utils/sopUtils'
+import { normalizeSopItem, formatDate, getLevelLabel } from '../../utils/sopUtils'
 import { Spinner, EmptyState } from '../../shared/components/Loaders'
 import Modal from '../../shared/components/Modal'
 import toast from 'react-hot-toast'
@@ -38,16 +40,11 @@ function LevelBadge({ level }) {
 }
 
 // ── Approval Action Modal ──────────────────────────────────────────────────
-// NextApprovalLevel is taken directly from sop.nextApprovalLevel (backend-calculated).
-// No dropdown — the workflow order is fully defined server-side.
 function ActionModal({ sop, open, onClose, onDone }) {
-  const [action, setAction]     = useState('approve')
+  const [action, setAction] = useState('approve')
   const [comments, setComments] = useState('')
-  const [saving, setSaving]     = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  // Backend returns NextApprovalLevel in the pending-list query result.
-  // SQL: WF.ApprovalLevel WHERE WF.ApprovalLevel = SD.ApprovalLevel + 1
-  // This is the correct next stage in the workflow — no user selection needed.
   const nextApprovalLevel = sop?.nextApprovalLevel ?? sop?.NextApprovalLevel ?? 0
 
   useEffect(() => {
@@ -67,7 +64,6 @@ function ActionModal({ sop, open, onClose, onDone }) {
     setSaving(true)
     try {
       if (isApprove) {
-        // Pass nextApprovalLevel straight from backend — no manual input
         await sopApproveRejectAPI.approve(sop.id, comments || null, nextApprovalLevel)
         toast.success('SOP approved successfully')
       } else {
@@ -90,60 +86,10 @@ function ActionModal({ sop, open, onClose, onDone }) {
     <Modal
       open={open}
       onClose={onClose}
-      title={isApprove ? '✅ Approve SOP' : '❌ Reject SOP'}
+      title={sop.sopTitle + ' (' + sop.sopDocument?.substring(sop.sopDocument.lastIndexOf('/') + 1) + ')'}
       size="sm"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-
-        {/* SOP info chip */}
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-3.5 space-y-1">
-          <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">SOP</p>
-          <p className="text-sm font-semibold text-gray-800">{sop.sopTitle}</p>
-          <div className="flex gap-2 mt-1 flex-wrap items-center">
-            <LevelBadge level={sop.approvalLevel} />
-            {sop.expirationDate && (
-              <span className="text-xs text-gray-400">Expires {formatDate(sop.expirationDate)}</span>
-            )}
-          </div>
-          {/* Show the auto-determined next level as read-only info */}
-          {isApprove && nextApprovalLevel > 0 && (
-            <p className="text-xs text-gray-400 pt-1">
-              Next stage →{' '}
-              <span className="font-semibold text-gray-600">{getLevelLabel(nextApprovalLevel)}</span>
-            </p>
-          )}
-          {isApprove && nextApprovalLevel === 0 && (
-            <p className="text-xs text-emerald-600 font-semibold pt-1">
-              ✓ This is the final approval — SOP will be marked Completed
-            </p>
-          )}
-        </div>
-
-        {/* Approve / Reject toggle */}
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setAction('approve')}
-            className={`flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${
-              isApprove
-                ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                : 'bg-white text-gray-500 border-gray-200 hover:border-emerald-200 hover:text-emerald-700'
-            }`}
-          >
-            <CheckCircle size={15} /> Approve
-          </button>
-          <button
-            type="button"
-            onClick={() => setAction('reject')}
-            className={`flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${
-              !isApprove
-                ? 'bg-red-600 text-white border-red-600 shadow-sm'
-                : 'bg-white text-gray-500 border-gray-200 hover:border-red-200 hover:text-red-700'
-            }`}
-          >
-            <XCircle size={15} /> Reject
-          </button>
-        </div>
 
         {/* Reject warning */}
         {!isApprove && (
@@ -166,39 +112,25 @@ function ActionModal({ sop, open, onClose, onDone }) {
             value={comments}
             onChange={e => setComments(e.target.value)}
             required={!isApprove}
-            placeholder={
-              isApprove
-                ? 'Optional approval notes…'
-                : 'Reason for rejection (required)…'
-            }
+            placeholder={isApprove ? 'Optional approval notes…' : 'Reason for rejection (required)…'}
           />
         </div>
 
         {/* Footer buttons */}
         <div className="flex gap-3 pt-1">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 px-4 py-2 rounded-xl text-sm font-semibold border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            Cancel
+          <button type="button" onClick={() => setAction('approve')}
+            className={`flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${isApprove
+                ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                : 'bg-white text-gray-500 border-gray-200 hover:border-emerald-200 hover:text-emerald-700'
+              }`}>
+            <CheckCircle size={15} /> Approve
           </button>
-          <button
-            type="submit"
-            disabled={saving}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-colors ${
-              isApprove
-                ? 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400'
-                : 'bg-red-600 hover:bg-red-700 disabled:bg-red-400'
-            }`}
-          >
-            {saving ? (
-              <><Spinner size="sm" /> Saving…</>
-            ) : isApprove ? (
-              <><CheckCircle size={14} /> Approve</>
-            ) : (
-              <><XCircle size={14} /> Reject</>
-            )}
+          <button type="button" onClick={() => setAction('reject')}
+            className={`flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${!isApprove
+                ? 'bg-red-600 text-white border-red-600 shadow-sm'
+                : 'bg-white text-gray-500 border-gray-200 hover:border-red-200 hover:text-red-700'
+              }`}>
+            <XCircle size={15} /> Reject
           </button>
         </div>
       </form>
@@ -208,35 +140,52 @@ function ActionModal({ sop, open, onClose, onDone }) {
 
 // ── Main Page ──────────────────────────────────────────────────────────────
 export default function PendingApprovalsPage() {
-  const [sops, setSops]         = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [search, setSearch]     = useState('')
-  const [yearFilter, setYear]   = useState('')
+  const [allSops, setAllSops] = useState([])   // full list from backend
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [yearFilter, setYear] = useState('')   // '' = all years
   const [modalSop, setModalSop] = useState(null)
 
+  // Load full pending list — no year sent to backend (it's unused in SQL)
   const load = useCallback(() => {
     setLoading(true)
-    const params = {}
-    if (yearFilter) params.year = yearFilter
-    sopApproveRejectAPI.getPendingList(params)
+    sopApproveRejectAPI.getPendingList()
       .then(r => {
-        const raw   = r.data?.data ?? r.data?.Data ?? r.data
+        const raw = r.data?.data ?? r.data?.Data ?? r.data
         const items = raw?.Items ?? raw?.items ?? (Array.isArray(raw) ? raw : [])
-        setSops(items.map(normalizeSopItem))
+        setAllSops(items.map(normalizeSopItem))
       })
       .catch(() => toast.error('Failed to load pending approvals'))
       .finally(() => setLoading(false))
-  }, [yearFilter])
+  }, [])
 
   useEffect(() => { load() }, [load])
 
-  const filtered = sops.filter(s =>
-    !search || s.sopTitle?.toLowerCase().includes(search.toLowerCase())
-  )
+  // ── Client-side filtering ─────────────────────────────────────────────
+  const filtered = allSops.filter(sop => {
+    // Search by title
+    if (search.trim() && !sop.sopTitle?.toLowerCase().includes(search.toLowerCase())) {
+      return false
+    }
+    // Year filter — compare ExpirationDate year (backend @Year param is unused in SQL)
+    if (yearFilter) {
+      const expYear = sop.expirationDate
+        ? new Date(sop.expirationDate).getFullYear().toString()
+        : null
+      if (expYear !== yearFilter) return false
+    }
+    return true
+  })
 
-  const levels = [...new Set(sops.map(s => s.approvalLevel))].sort()
+  const levels = [...new Set(allSops.map(s => s.approvalLevel))].sort()
   const currentYear = new Date().getFullYear()
-  const yearOptions = [currentYear, currentYear - 1, currentYear - 2]
+  // Build year options from actual data years + current year range
+  const dataYears = [...new Set(
+    allSops
+      .map(s => s.expirationDate ? new Date(s.expirationDate).getFullYear() : null)
+      .filter(Boolean)
+  )].sort((a, b) => b - a)
+  const yearOptions = [...new Set([currentYear, currentYear - 1, currentYear - 2, ...dataYears])].sort((a, b) => b - a)
 
   return (
     <div className="min-h-screen p-6 surface space-y-6">
@@ -259,15 +208,17 @@ export default function PendingApprovalsPage() {
       </div>
 
       {/* Summary cards */}
-      {!loading && sops.length > 0 && (
+      {!loading && allSops.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="card-surface border border-gray-200 rounded-2xl p-4 flex items-center gap-3">
             <div className="w-9 h-9 bg-amber-100 rounded-xl flex items-center justify-center shrink-0">
               <Clock size={16} className="text-amber-600" />
             </div>
             <div>
-              <p className="text-xl font-bold text-gray-900">{sops.length}</p>
-              <p className="text-xs text-gray-500">Total Pending</p>
+              <p className="text-xl font-bold text-gray-900">{filtered.length}</p>
+              <p className="text-xs text-gray-500">
+                {yearFilter ? `Pending (${yearFilter})` : 'Total Pending'}
+              </p>
             </div>
           </div>
           {levels.map(l => (
@@ -277,7 +228,7 @@ export default function PendingApprovalsPage() {
               </div>
               <div>
                 <p className="text-xl font-bold text-gray-900">
-                  {sops.filter(s => s.approvalLevel === l).length}
+                  {filtered.filter(s => s.approvalLevel === l).length}
                 </p>
                 <p className="text-xs text-gray-500">{getLevelLabel(l)}</p>
               </div>
@@ -298,20 +249,17 @@ export default function PendingApprovalsPage() {
             className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-300"
           />
         </div>
-        <div className="relative">
-          <Filter size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-          <select
-            value={yearFilter}
-            onChange={e => setYear(e.target.value)}
-            className="pl-8 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-300 appearance-none cursor-pointer"
+
+
+        {/* Clear filters */}
+        {(search || yearFilter) && (
+          <button
+            onClick={() => { setSearch(''); setYear('') }}
+            className="flex items-center gap-1 px-3 py-2 text-xs font-semibold text-gray-500 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 transition-colors"
           >
-            <option value="">All Years</option>
-            {yearOptions.map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-          <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-        </div>
+            <XCircle size={13} /> Clear
+          </button>
+        )}
       </div>
 
       {/* Table */}
@@ -324,8 +272,12 @@ export default function PendingApprovalsPage() {
           </div>
         ) : filtered.length === 0 ? (
           <EmptyState
-            title={search ? 'No matching SOPs' : 'No pending approvals'}
-            desc={search ? 'Try clearing your search' : "You're all caught up — nothing needs action right now"}
+            title={search || yearFilter ? 'No matching SOPs' : 'No pending approvals'}
+            desc={
+              search || yearFilter
+                ? 'Try adjusting your search or year filter'
+                : "You're all caught up — nothing needs action right now"
+            }
           />
         ) : (
           <div className="overflow-x-auto">
@@ -334,20 +286,16 @@ export default function PendingApprovalsPage() {
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide w-10">#</th>
                   <th className="px-4 py-3 text-left   text-xs font-semibold text-gray-500 uppercase tracking-wide">SOP Title</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Current Level</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Next Level</th>
+                  <th className="px-4 py-3 text-left   text-xs font-semibold text-gray-500 uppercase tracking-wide">SOP Document</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Current Stage</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Next Stage</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Expiry</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filtered.map((sop, idx) => (
-                  <SopRow
-                    key={sop.id}
-                    sop={sop}
-                    idx={idx}
-                    onAction={() => setModalSop(sop)}
-                  />
+                  <SopRow key={sop.id} sop={sop} idx={idx} onAction={() => setModalSop(sop)} />
                 ))}
               </tbody>
             </table>
@@ -355,10 +303,11 @@ export default function PendingApprovalsPage() {
         )}
       </div>
 
-      {/* Pagination hint */}
+      {/* Count hint */}
       {!loading && filtered.length > 0 && (
         <p className="text-xs text-gray-400 text-center">
-          Showing {filtered.length} of {sops.length} pending SOP{sops.length !== 1 ? 's' : ''}
+          Showing {filtered.length} of {allSops.length} pending SOP{allSops.length !== 1 ? 's' : ''}
+          {yearFilter && <span className="ml-1 font-medium text-gray-500">· Expiry year: {yearFilter}</span>}
         </p>
       )}
 
@@ -393,16 +342,15 @@ function SopRow({ sop, idx, onAction }) {
           </div>
         </div>
       </td>
-
       <td className="px-4 py-3 text-center">
-        <LevelBadge level={sop.approvalLevel} />
+        {sop.sopDocument?.substring(sop.sopDocument.lastIndexOf('/') + 1)}
+      </td>
+      <td className="px-4 py-3 text-center">
+        {sop.stageName}
       </td>
 
       <td className="px-4 py-3 text-center">
-        {nextLevel > 0
-          ? <LevelBadge level={nextLevel} />
-          : <span className="text-xs text-emerald-600 font-semibold">Final</span>
-        }
+        {sop.nextStageName}
       </td>
 
       <td className="px-4 py-3 text-center">

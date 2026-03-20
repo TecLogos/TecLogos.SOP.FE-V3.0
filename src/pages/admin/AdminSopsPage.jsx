@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, useCallback } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { sopAPI } from '../../services/api'
 import SopTable from '../../shared/components/SopTable'
 import ConfirmDialog from '../../shared/components/ConfirmDialog'
-import { normalizeSopItem, safeItems, downloadBlob } from '../../utils/sopUtils'
+import { normalizeSopItem, safeItems } from '../../utils/sopUtils'
 import { Plus, Search, Filter, RefreshCw, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -20,44 +20,76 @@ const STATUSES = [
 
 export default function AdminSopsPage() {
   const navigate = useNavigate()
-  const [sops, setSops]               = useState([])
-  const [total, setTotal]             = useState(0)
+  const [searchParams] = useSearchParams()
+
+  // Read ?status= from URL — set by dashboard card clicks
+  // 'inprogress' is a special FE-only value for approvalLevel=1
+  const urlStatus = searchParams.get('status') ?? ''
+
+  const [allSops, setAllSops]         = useState([])   // raw full list from API
   const [loading, setLoading]         = useState(false)
   const [searchInput, setSearchInput] = useState('')
-  const [status, setStatus]           = useState('')
+  const [statusFilter, setStatus]     = useState(
+    // Map dashboard ?status= values to the dropdown values
+    urlStatus === 'inprogress' || urlStatus === 'all' ? '' : urlStatus
+  )
   const [deleteSop, setDeleteSop]     = useState(null)
 
-  const load = async () => {
+  // Load all SOPs once from backend (client-side filtering handles the rest)
+  const load = useCallback(async () => {
     setLoading(true)
     try {
-      // GET /api/v1/SopDetail/list?approvalStatus=&year=
-      const params = {}
-      if (status !== '') params.approvalStatus = Number(status)
-      const { data } = await sopAPI.getAll(params)
+      const { data } = await sopAPI.getAll({})
       const normalized = safeItems(data).map(normalizeSopItem)
-      const q = searchInput.trim().toLowerCase()
-      const filtered = q
-        ? normalized.filter(s => s.sopTitle?.toLowerCase().includes(q))
-        : normalized
-      setSops(filtered)
-      setTotal(filtered.length)
+      setAllSops(normalized)
     } catch {
       toast.error('Failed to load SOPs')
     } finally {
       setLoading(false)
     }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  // ── Client-side filtering ─────────────────────────────────────────────
+  // Apply: URL special cases + status dropdown + search input
+  const filtered = allSops.filter(sop => {
+    // Search filter
+    if (searchInput.trim()) {
+      if (!sop.sopTitle?.toLowerCase().includes(searchInput.trim().toLowerCase())) return false
+    }
+
+    // "In Progress" from dashboard — approval level = 1
+    if (urlStatus === 'inprogress' && statusFilter === '') {
+      return sop.approvalLevel === 1
+    }
+
+    // Status dropdown (overrides URL if user changed it)
+    if (statusFilter !== '') {
+      return sop.status === Number(statusFilter)
+    }
+
+    return true
+  })
+
+  // ── Active filter label ───────────────────────────────────────────────
+  const activeFilterLabel = () => {
+    if (urlStatus === 'inprogress' && statusFilter === '') return 'In Progress'
+    const found = STATUSES.find(s => s.value === statusFilter && s.value !== '')
+    return found?.label ?? null
+  }
+  const filterLabel = activeFilterLabel()
+
+  const handleDownload = (sop) => {
+    if (!sop.sopDocument) { toast.error('No document attached to this SOP'); return }
+    window.open(sop.sopDocument, '_blank')
   }
 
-  useEffect(() => { load() }, [status])
-
-  // Download handler: opens the SopDocument URL/path directly
-  const handleDownload = (sop) => {
-    if (!sop.sopDocument) {
-      toast.error('No document attached to this SOP')
-      return
-    }
-    // Try opening in new tab (works for both relative paths and full URLs)
-    window.open(sop.sopDocument, '_blank')
+  const handleClear = () => {
+    setSearchInput('')
+    setStatus('')
+    // Remove ?status= from URL without full reload
+    navigate('/admin/sops', { replace: true })
   }
 
   return (
@@ -66,13 +98,28 @@ export default function AdminSopsPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="page-title">Manage SOPs</h1>
-          <p className="text-gray-500 text-sm mt-1">{total} total documents</p>
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-gray-500 text-sm">{filtered.length} document{filtered.length !== 1 ? 's' : ''}</p>
+            {/* Active filter badge */}
+            {filterLabel && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-slate-100 border border-slate-200 text-slate-700 rounded-full text-xs font-semibold">
+                {filterLabel}
+                <button
+                  onClick={handleClear}
+                  className="ml-0.5 text-slate-400 hover:text-slate-700 transition-colors"
+                  title="Clear filter"
+                >
+                  ×
+                </button>
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <input
             value={searchInput}
             onChange={e => setSearchInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && load()}
+            onKeyDown={e => e.key === 'Escape' && setSearchInput('')}
             placeholder="Search by title…"
             className="w-44 px-2.5 py-1.5 border-2 border-gray-300 hover:border-gray-400 rounded-lg text-sm focus:outline-none focus:border-slate-400 bg-gray-50"
           />
@@ -80,14 +127,21 @@ export default function AdminSopsPage() {
             className="p-1.5 rounded-md border-2 border-cyan-200 bg-cyan-50 text-gray-500 hover:bg-cyan-100" title="Search">
             <Search size={16} />
           </button>
-          <button onClick={() => { setSearchInput(''); setStatus('') }}
-            className="p-1.5 rounded-md border-2 border-red-200 bg-red-50 text-red-500 hover:bg-red-100" title="Clear">
+          <button onClick={handleClear}
+            className="p-1.5 rounded-md border-2 border-red-200 bg-red-50 text-red-500 hover:bg-red-100" title="Clear filters">
             <X size={16} />
           </button>
           <div className="relative">
             <Filter size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-            <select value={status} onChange={e => setStatus(e.target.value)}
-              className="pl-8 pr-3 py-1.5 border-2 border-gray-300 rounded-lg text-sm bg-gray-50 hover:border-gray-400 appearance-none focus:outline-none">
+            <select
+              value={statusFilter}
+              onChange={e => {
+                setStatus(e.target.value)
+                // When user manually picks a status, remove URL hint so it doesn't conflict
+                if (urlStatus) navigate('/admin/sops', { replace: true })
+              }}
+              className="pl-8 pr-3 py-1.5 border-2 border-gray-300 rounded-lg text-sm bg-gray-50 hover:border-gray-400 appearance-none focus:outline-none"
+            >
               {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
           </div>
@@ -104,15 +158,13 @@ export default function AdminSopsPage() {
       {/* Table */}
       <div className="card-surface border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
         <SopTable
-          sops={sops}
+          sops={filtered}
           loading={loading}
           actions={{
-            // View → goes to SOP details (which has Take Action + Download)
             onViewDetails: sop => navigate(`/admin/sops/${sop.id}/tracking`, { state: { sop } }),
-            // Download directly from table row (completed SOPs only)
-            onDownload: handleDownload,
-            onEdit:   sop => navigate(`/admin/sops/edit/${sop.id}`, { state: { sop } }),
-            onDelete: sop => setDeleteSop(sop),
+            onDownload:    handleDownload,
+            onEdit:        sop => navigate(`/admin/sops/edit/${sop.id}`, { state: { sop } }),
+            onDelete:      sop => setDeleteSop(sop),
           }}
         />
       </div>
