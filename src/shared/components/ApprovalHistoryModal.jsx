@@ -125,6 +125,7 @@ export default function ApprovalHistoryModal({ sopId, open, onClose }) {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-56">Stage</th>
                 <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">Status</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-[520px]">Comments</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-[520px]">Version</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-48">User</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-44">Date</th>
               </tr>
@@ -139,6 +140,7 @@ export default function ApprovalHistoryModal({ sopId, open, onClose }) {
                       {typeof rowStatus !== 'undefined' ? <StatusBadge status={Number(rowStatus)} /> : '-'}
                     </td>
                     <td className="px-4 py-3 text-gray-600 max-w-[520px] whitespace-normal break-words">{item.comments ?? item.Comments ?? '-'}</td>
+                    <td className="px-4 py-3 text-gray-600 max-w-[520px] whitespace-normal break-words">{item.version ?? item.Version ?? '-'}</td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{item.createdBy ?? item.CreatedBy ?? '-'}</td>
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDateTime(item.created ?? item.Created)}</td>
                   </tr>

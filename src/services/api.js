@@ -113,6 +113,7 @@ export const authAPI = {
 export const sopAPI = {
   getAll: (params, options) => cachedGet('/api/v1/SopDetail/list', { params, ...options }),
   getById: (id, options) => cachedGet(`/api/v1/SopDetail/${id}`, { ttl: 60_000, ...options }),
+  downloadDocument: (id) => api.get(`/api/v1/SopDetail/${id}/document`, { responseType: 'blob' }),
   create: async (formData) => {
     const response = await api.post('/api/v1/SopDetail/create', formData)
     invalidateSopCache()
@@ -219,5 +220,7 @@ export const workflowAPI = {
 }
 
 export default api
+
+
 
 

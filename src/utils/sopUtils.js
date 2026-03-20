@@ -80,25 +80,21 @@ export function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url)
 }
 
-export function resolveDocumentUrl(path) {
-  if (!path) return ''
-  const trimmed = String(path).trim()
-  if (!trimmed) return ''
-  if (/^https?:\/\//i.test(trimmed)) return encodeURI(trimmed)
-  const normalized = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
-  return encodeURI(normalized)
+export function getDownloadFileName(contentDisposition, fallbackName) {
+  if (!contentDisposition) return fallbackName
+
+  const utfMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utfMatch?.[1]) return decodeURIComponent(utfMatch[1])
+
+  const basicMatch = contentDisposition.match(/filename="?([^";]+)"?/i)
+  if (basicMatch?.[1]) return basicMatch[1]
+
+  return fallbackName
 }
 
-export async function downloadSopDocument(path, fallbackName = 'document.pdf') {
-  const url = resolveDocumentUrl(path)
-  if (!url) throw new Error('No document path available')
-
-  const response = await fetch(url)
-  if (!response.ok) throw new Error('Download failed')
-
-  const blob = await response.blob()
-  const nameFromPath = String(path).split(/[\\/]/).pop()
-  downloadBlob(blob, nameFromPath || fallbackName)
+export function downloadApiFile(response, fallbackName = 'document.pdf') {
+  const fileName = getDownloadFileName(response?.headers?.['content-disposition'], fallbackName)
+  downloadBlob(response.data, fileName)
 }
 /**
  * normalizeSopList(data)
@@ -165,4 +161,6 @@ export function normalizeSopItem(item) {
     created:          item.Created          ?? item.created,
   }
 }
+
+
 

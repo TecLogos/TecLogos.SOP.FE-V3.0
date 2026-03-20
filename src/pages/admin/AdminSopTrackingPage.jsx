@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { sopAPI, sopApproveRejectAPI } from '../../services/api'
-import { downloadSopDocument, formatDate, getLevelLabel, getStatusInfo } from '../../utils/sopUtils'
+import { downloadApiFile, formatDate, getLevelLabel, getStatusInfo } from '../../utils/sopUtils'
 import { Spinner } from '../../shared/components/Loaders'
 import Modal from '../../shared/components/Modal'
 import {
@@ -21,6 +21,18 @@ function formatDateTime(dateStr) {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function fileName(doc) {
+  return doc ? doc.split(/[\\/]/).pop() : '—'
+}
+
+function textOrDash(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number') return String(value)
+  }
+  return '—'
 }
 export default function AdminSopTrackingPage() {
   const { id }    = useParams()
@@ -56,6 +68,10 @@ export default function AdminSopTrackingPage() {
 
   const comments = useMemo(() => {
     const list =
+      sop?.sopDetailHistoryResponseList ??
+      sop?.SopDetailHistoryResponseList ??
+      sop?.sopDetailHistoryList ??
+      sop?.SopDetailHistoryList ??
       sop?.sopCommentsResponseList ??
       sop?.SopCommentsResponseList ??
       sop?.sopCommentsList ??
@@ -81,7 +97,27 @@ export default function AdminSopTrackingPage() {
 
     setDl(true)
     try {
-      await downloadSopDocument(sopDocument, `SOP_${id}.pdf`)
+      const response = await sopAPI.downloadDocument(id)
+      downloadApiFile(response, `SOP_${id}.pdf`)
+    } catch {
+      toast.error('Failed to download document')
+    } finally {
+      setDl(false)
+    }
+  }
+
+  const handleHistoryDownload = async (docName) => {
+    const fallbackName = fileName(docName)
+
+    if (!id) {
+      toast.error('Unable to download document')
+      return
+    }
+
+    setDl(true)
+    try {
+      const response = await sopAPI.downloadDocument(id)
+      downloadApiFile(response, fallbackName !== '—' ? fallbackName : `SOP_${id}.pdf`)
     } catch {
       toast.error('Failed to download document')
     } finally {
@@ -228,8 +264,7 @@ export default function AdminSopTrackingPage() {
       {/* ── Comments ── */}
       <div className="card-surface border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
         <div className="bg-white border-b border-gray-100 px-6 py-4">
-          <h3 className="text-sm font-bold text-gray-900">Comments</h3>
-          <p className="text-xs text-gray-500 mt-0.5">Reviewer/admin notes attached to this SOP</p>
+          <h3 className="text-sm font-bold text-gray-900">Sop Change History</h3>
         </div>
 
         {comments.length === 0 ? (
@@ -238,28 +273,63 @@ export default function AdminSopTrackingPage() {
           </div>
         ) : (
           <div className="overflow-x-auto bg-white">
-            <table className="w-full table-auto border-collapse text-sm min-w-[920px]">
+            <table className="w-full table-fixed border-collapse text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-[640px]">Comment</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-56">User</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-44">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-[16%]">SOP Title</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-[18%]">Document</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-[24%]">Comment</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-[8%]">Version</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-[14%]">User</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-[14%]">Date</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide w-[6%]">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {comments.map((c, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-gray-700 whitespace-normal break-words">
-                      {c.commentText ?? c.CommentText ?? c.comments ?? c.Comments ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
-                      {c.createdBy ?? c.CreatedBy ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
-                      {formatDateTime(c.created ?? c.Created)}
-                    </td>
-                  </tr>
-                ))}
+                {comments.map((c, idx) => {
+                  const rowDocument = c.sopDocument ?? c.SopDocument ?? sopDocument
+                  const rowFileName = fileName(rowDocument)
+
+                  return (
+                    <tr key={idx} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-gray-700">
+                        <span className="block truncate" title={textOrDash(c.sopTitle, c.SopTitle, sopTitle)}>
+                          {textOrDash(c.sopTitle, c.SopTitle, sopTitle)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">
+                        <span className="block truncate" title={rowFileName}>
+                          {rowFileName}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 break-words align-top">
+                        {textOrDash(c.commentText, c.CommentText, c.comments, c.Comments)}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap align-top">
+                        {textOrDash(c.version, c.Version)}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">
+                        <span className="block truncate" title={textOrDash(c.createdBy, c.CreatedBy)}>
+                          {textOrDash(c.createdBy, c.CreatedBy)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap align-top">
+                        {formatDateTime(c.created ?? c.Created)}
+                      </td>
+                      <td className="px-4 py-3 text-center align-top">
+                        <button
+                          type="button"
+                          onClick={() => handleHistoryDownload(rowDocument)}
+                          disabled={downloading || rowFileName === '—'}
+                          className="inline-flex items-center justify-center rounded-lg border border-gray-200 p-2 text-gray-500 transition hover:bg-gray-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Download document"
+                        >
+                          {downloading ? <Spinner size="sm" /> : <Download size={14} />}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -411,6 +481,11 @@ function SopActionModal({ open, onClose, sop, onDone }) {
     </Modal>
   )
 }
+
+
+
+
+
 
 
 

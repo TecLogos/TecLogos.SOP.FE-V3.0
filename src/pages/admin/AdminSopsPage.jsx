@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { sopAPI } from '../../services/api'
 import SopTable from '../../shared/components/SopTable'
 import ConfirmDialog from '../../shared/components/ConfirmDialog'
-import { downloadSopDocument, normalizeSopItem, safeItems } from '../../utils/sopUtils'
+import { downloadApiFile, normalizeSopItem, safeItems } from '../../utils/sopUtils'
 import useDebouncedValue from '../../shared/hooks/useDebouncedValue'
 import { Plus, Search, Filter, RefreshCw, X } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -81,7 +81,8 @@ export default function AdminSopsPage() {
       }
 
       try {
-        await downloadSopDocument(sop.sopDocument, `SOP_${sop.id || 'document'}.pdf`)
+        const response = await sopAPI.downloadDocument(sop.id)
+        downloadApiFile(response, `SOP_${sop.id || 'document'}.pdf`)
       } catch {
         toast.error('Failed to download document')
       }
@@ -218,4 +219,9 @@ export default function AdminSopsPage() {
     </div>
   )
 }
+
+
+
+
+
 
