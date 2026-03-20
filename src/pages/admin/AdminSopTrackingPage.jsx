@@ -1,15 +1,7 @@
-/**
- * AdminSopTrackingPage (simplified)
- * ──────────────────────────────────
- * • Shows SOP details card
- * • "Take Action" button → Approve / Reject modal (uses SopApproveRejectAPI)
- * • "Download PDF" button appears when SOP ApprovalStatus === 3 (Completed)
- * • NO timeline / workflow steps display — removed as per requirements
- */
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { sopAPI, sopApproveRejectAPI } from '../../services/api'
-import { downloadBlob, formatDate, getLevelLabel, getStatusInfo } from '../../utils/sopUtils'
+import { downloadSopDocument, formatDate, getLevelLabel, getStatusInfo } from '../../utils/sopUtils'
 import { Spinner } from '../../shared/components/Loaders'
 import Modal from '../../shared/components/Modal'
 import {
@@ -18,6 +10,18 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
+function formatDateTime(dateStr) {
+  if (!dateStr) return '—'
+  const d = new Date(dateStr)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
 export default function AdminSopTrackingPage() {
   const { id }    = useParams()
   const navigate  = useNavigate()
@@ -44,29 +48,42 @@ export default function AdminSopTrackingPage() {
   useEffect(() => { load() }, [id])
 
   // Normalise fields
-  const sopTitle       = sop?.SopTitle      ?? sop?.sopTitle      ?? passedSop?.sopTitle ?? '—'
+  const sopTitle       = sop?.SopTitle      ?? sop?.sopTitle      ?? passedSop?.sopTitle ?? 'â€”'
   const expiryDate     = sop?.ExpirationDate ?? sop?.expirationDate ?? passedSop?.expirationDate
   const approvalLevel  = sop?.ApprovalLevel  ?? sop?.approvalLevel  ?? passedSop?.approvalLevel ?? 0
   const approvalStatus = sop?.ApprovalStatus ?? sop?.approvalStatus ?? passedSop?.status ?? 0
   const sopDocument    = sop?.SopDocument    ?? sop?.sopDocument    ?? passedSop?.sopDocument
 
-  // ApprovalStatus 3 = Completed → allow download
+  const comments = useMemo(() => {
+    const list =
+      sop?.sopCommentsResponseList ??
+      sop?.SopCommentsResponseList ??
+      sop?.sopCommentsList ??
+      sop?.SopCommentsList ??
+      []
+
+    if (!Array.isArray(list)) return []
+
+    const getCreated = (c) => c?.created ?? c?.Created ?? null
+    return [...list].sort((a, b) => new Date(getCreated(b) ?? 0) - new Date(getCreated(a) ?? 0))
+  }, [sop])
+
+
+  // ApprovalStatus 3 = Completed â†’ allow download
   const isCompleted = approvalStatus === 3
   const statusInfo  = getStatusInfo(approvalStatus)
 
   const handleDownload = async () => {
-    if (!sopDocument) { toast.error('No document attached to this SOP'); return }
+    if (!sopDocument) {
+      toast.error('No document attached to this SOP')
+      return
+    }
+
     setDl(true)
     try {
-      // Try to fetch the file by URL/path stored in sopDocument
-      const response = await fetch(sopDocument)
-      if (!response.ok) throw new Error('Download failed')
-      const blob = await response.blob()
-      const filename = sopDocument.split(/[\\/]/).pop() || `SOP_${id}.pdf`
-      downloadBlob(blob, filename)
+      await downloadSopDocument(sopDocument, `SOP_${id}.pdf`)
     } catch {
-      // Fallback: open in new tab
-      window.open(sopDocument, '_blank')
+      toast.error('Failed to download document')
     } finally {
       setDl(false)
     }
@@ -83,7 +100,7 @@ export default function AdminSopTrackingPage() {
   return (
     <div className="min-h-screen p-6 surface space-y-6">
 
-      {/* ── Header ── */}
+      {/*  Header  */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
    
@@ -95,13 +112,6 @@ export default function AdminSopTrackingPage() {
 
         {/* Action buttons */}
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setAction(true)}
-            className="btn-primary"
-          >
-            <CheckCircle size={15} /> Take Action
-          </button>
 
           {isCompleted && (
             <button
@@ -125,7 +135,7 @@ export default function AdminSopTrackingPage() {
         </div>
       </div>
 
-      {/* ── SOP Detail Card ── */}
+      {/*  SOP Detail Card  */}
       <div className="card-surface border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
 
         {/* Title bar */}
@@ -215,45 +225,105 @@ export default function AdminSopTrackingPage() {
           </div>
         )}
       </div>
+      {/* ── Comments ── */}
+      <div className="card-surface border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="bg-white border-b border-gray-100 px-6 py-4">
+          <h3 className="text-sm font-bold text-gray-900">Comments</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Reviewer/admin notes attached to this SOP</p>
+        </div>
 
-      {/* ── Action Modal ── */}
+        {comments.length === 0 ? (
+          <div className="px-6 py-10 text-center">
+            <p className="text-sm text-gray-400">No comments found for this SOP.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto bg-white">
+            <table className="w-full table-auto border-collapse text-sm min-w-[920px]">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-[640px]">Comment</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-56">User</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-44">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {comments.map((c, idx) => (
+                  <tr key={idx} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-gray-700 whitespace-normal break-words">
+                      {c.commentText ?? c.CommentText ?? c.comments ?? c.Comments ?? '—'}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                      {c.createdBy ?? c.CreatedBy ?? '—'}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                      {formatDateTime(c.created ?? c.Created)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+
+      {/*  Action Modal  */}
       <SopActionModal
         open={actionOpen}
         onClose={() => setAction(false)}
-        sop={{ id, sopTitle, approvalLevel }}
+        sop={{ id, sopTitle, approvalLevel, sopDocument, expirationDate: expiryDate, nextApprovalLevel: (sop?.NextApprovalLevel ?? sop?.nextApprovalLevel ?? passedSop?.nextApprovalLevel ?? 0) }}
         onDone={load}
       />
     </div>
   )
 }
 
-// ── Approve / Reject Modal ─────────────────────────────────────────────────
+// ── Approve / Reject Modal ──
 function SopActionModal({ open, onClose, sop, onDone }) {
-  const [action, setAction]     = useState('approve')
+  const [action, setAction] = useState('approve')
   const [comments, setComments] = useState('')
-  const [saving, setSaving]     = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  const currentLevel = sop?.approvalLevel ?? 0
-  // NextApprovalLevel is set by the backend workflow (SD.ApprovalLevel + 1).
-  // Pass it directly — no user dropdown needed.
+  const approvalLevelNum = Number(sop?.approvalLevel ?? sop?.ApprovalLevel ?? 0) || 0
+  const canReject = approvalLevelNum > 0
   const nextApprovalLevel = sop?.nextApprovalLevel ?? sop?.NextApprovalLevel ?? 0
-  const isApprove = action === 'approve'
+
+  const expirationDateRaw = sop?.expirationDate ?? sop?.ExpirationDate ?? null
+  const isExpired = expirationDateRaw ? new Date(expirationDateRaw) < new Date() : false
 
   useEffect(() => {
     if (!open) return
     setAction('approve')
     setComments('')
-  }, [open])
+  }, [open, sop?.id])
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!isApprove && !comments.trim()) {
+  const isApprove = action === 'approve'
+
+  const docName = sop?.sopDocument ? sop.sopDocument.split(/[\\/]/).pop() : null
+  const title = sop?.sopTitle ? (docName ? (sop.sopTitle + ' (' + docName + ')') : sop.sopTitle) : 'SOP Action'
+
+  const submitAction = async (selectedAction) => {
+    const isSelectedApprove = selectedAction === 'approve'
+
+    if (isExpired) {
+      toast.error('This SOP is expired. Approve/Reject is not applicable.')
+      return
+    }
+
+    if (!isSelectedApprove && !canReject) {
+      toast.error('Reject is not available at this stage')
+      return
+    }
+
+    if (!isSelectedApprove && !comments.trim()) {
+      setAction('reject')
       toast.error('Comments are required when rejecting')
       return
     }
+
     setSaving(true)
     try {
-      if (isApprove) {
+      if (isSelectedApprove) {
         await sopApproveRejectAPI.approve(sop.id, comments || null, nextApprovalLevel)
         toast.success('SOP approved successfully')
       } else {
@@ -269,97 +339,79 @@ function SopActionModal({ open, onClose, sop, onDone }) {
     }
   }
 
+  if (!sop) return null
+
   return (
-    <Modal open={open} onClose={onClose} title="SOP Action" size="sm">
-      <form onSubmit={handleSubmit} className="space-y-4">
-
-        {/* SOP chip */}
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-3.5 space-y-1.5">
-          <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">SOP</p>
-          <p className="text-sm font-semibold text-gray-800">{sop?.sopTitle}</p>
-          {currentLevel > 0 && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-violet-100 text-violet-700">
-              {getLevelLabel(currentLevel)}
-            </span>
-          )}
-          {isApprove && nextApprovalLevel > 0 && (
-            <p className="text-xs text-gray-400">
-              Next stage → <span className="font-semibold text-gray-600">{getLevelLabel(nextApprovalLevel)}</span>
-            </p>
-          )}
-          {isApprove && nextApprovalLevel === 0 && (
-            <p className="text-xs text-emerald-600 font-semibold">
-              ✓ Final approval — SOP will be marked Completed
-            </p>
-          )}
-        </div>
-
-        {/* Approve / Reject toggle */}
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => setAction('approve')}
-            className={`flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${
-              isApprove
-                ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                : 'bg-white text-gray-500 border-gray-200 hover:border-emerald-200 hover:text-emerald-700'
-            }`}>
-            <CheckCircle size={14} /> Approve
-          </button>
-          <button type="button" onClick={() => setAction('reject')}
-            className={`flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${
-              !isApprove
-                ? 'bg-red-600 text-white border-red-600 shadow-sm'
-                : 'bg-white text-gray-500 border-gray-200 hover:border-red-200 hover:text-red-700'
-            }`}>
-            <XCircle size={14} /> Reject
-          </button>
-        </div>
-
-
-
-        {/* Reject warning */}
-        {!isApprove && (
-          <div className="flex items-start gap-2 bg-red-50 border border-red-100 rounded-xl p-3">
-            <AlertCircle size={14} className="text-red-500 shrink-0 mt-0.5" />
-            <p className="text-xs text-red-700">
-              Rejecting permanently marks this SOP as rejected. Comments required.
-            </p>
+    <Modal open={open} onClose={onClose} title={title} size="sm">
+      <div className="space-y-4">
+        {isExpired && (
+          <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-100 rounded-xl p-3">
+            <AlertCircle size={15} className="text-amber-600 mt-0.5 shrink-0" />
+            <p className="text-sm text-amber-800">This SOP is expired. Approve/Reject is not applicable.</p>
           </div>
         )}
 
-        {/* Comments */}
+        {!isExpired && !isApprove && (
+          <div className="flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl p-3">
+            <AlertCircle size={15} className="text-red-600 mt-0.5 shrink-0" />
+            <p className="text-sm text-red-700">Rejecting will mark this SOP as rejected. Comments are required.</p>
+          </div>
+        )}
+
         <div>
-          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-            Comments {!isApprove && <span className="text-red-500">*</span>}
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">
+            Comments {!isExpired && !isApprove && <span className="text-red-500">*</span>}
           </label>
           <textarea
             rows={3}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-slate-300"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:bg-gray-100 disabled:text-gray-500"
             value={comments}
-            onChange={e => setComments(e.target.value)}
-            required={!isApprove}
-            placeholder={isApprove ? 'Optional notes…' : 'Reason for rejection (required)…'}
+            onChange={(e) => setComments(e.target.value)}
+            disabled={saving || isExpired}
+            required={!isExpired && !isApprove}
+            placeholder={isApprove ? 'Optional approval notes...' : 'Reason for rejection (required)...'}
           />
         </div>
 
-        {/* Buttons */}
-        <div className="flex gap-3">
-          <button type="button" onClick={onClose}
-            className="flex-1 px-4 py-2 rounded-xl text-sm font-semibold border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors">
+        <div className="flex flex-wrap justify-end gap-3 pt-1">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="px-4 py-2.5 rounded-xl text-sm font-semibold border-2 border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+          >
             Cancel
           </button>
-          <button type="submit" disabled={saving}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-colors disabled:opacity-50 ${
-              isApprove ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
-            }`}>
-            {saving
-              ? <><Spinner size="sm" /> Saving…</>
-              : isApprove
-                ? <><CheckCircle size={14} /> Approve</>
-                : <><XCircle size={14} /> Reject</>
-            }
-          </button>
+
+          {!isExpired && (
+            <>
+              <button
+                type="button"
+                onClick={() => { setAction('approve'); submitAction('approve') }}
+                disabled={saving}
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 bg-emerald-600 text-white border-emerald-600 shadow-sm hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+              >
+                <CheckCircle size={15} /> {saving && action === "approve" ? "Approving..." : "Approve"}
+              </button>
+
+              {canReject && (
+                <button
+                  type="button"
+                  onClick={() => { setAction('reject'); submitAction('reject') }}
+                  disabled={saving}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold border-2 bg-red-600 text-white border-red-600 shadow-sm hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+                >
+                  <XCircle size={15} /> {saving && action === "reject" ? "Rejecting..." : "Reject"}
+                </button>
+              )}
+            </>
+          )}
         </div>
-      </form>
+      </div>
     </Modal>
   )
 }
+
+
+
+
